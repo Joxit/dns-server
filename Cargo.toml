@@ -1,0 +1,17 @@
+[package]
+name = "dns-server"
+version = "0.1.0"
+edition = "2021"
+repository = "https://github.com/Joxit/dns-server"
+homepage = "https://github.com/Joxit/dns-server"
+readme = "README.md"
+
+[[bin]]
+name = "dns-server"
+path = "src/main.rs"
+
+[dependencies]
+clap = { version = "^4.4", features = ["derive", "env"] }
+clap_complete = { version = "^4.4" }
+hickory-server = { version = "0.24.0", features = ["hickory-resolver", "sqlite"] }
+tokio = "1.33.0"
