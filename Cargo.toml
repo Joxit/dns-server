@@ -11,7 +11,11 @@ name = "dns-server"
 path = "src/main.rs"
 
 [dependencies]
+async-trait = "0.1.74"
 clap = { version = "^4.4", features = ["derive", "env"] }
 clap_complete = { version = "^4.4" }
-hickory-server = { version = "0.24.0", features = ["hickory-resolver", "sqlite"] }
-tokio = "1.33.0"
+hickory-server = { version = "^0.24", features = [
+  "hickory-resolver",
+  "sqlite",
+] }
+tokio = "^1.33"

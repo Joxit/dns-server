@@ -1,18 +1,15 @@
+use crate::authority::BlacklistAuthority;
 use clap::Parser;
-use hickory_server::authority::ZoneType;
 use hickory_server::resolver::Name;
 use hickory_server::{
-  authority::AuthorityObject,
-  authority::Catalog,
-  proto::rr::LowerName,
-  resolver::config::NameServerConfigGroup,
-  store::forwarder::{ForwardAuthority, ForwardConfig},
-  ServerFuture,
+  authority::AuthorityObject, authority::Catalog, proto::rr::LowerName,
+  resolver::config::NameServerConfigGroup, ServerFuture,
 };
-
-use std::str::FromStr;
+use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::{net::UdpSocket, runtime};
+
+pub mod authority;
 
 #[derive(Parser, Debug)]
 #[structopt(name = "dns-server", author, version, about)]
@@ -59,16 +56,16 @@ fn main() {
 
 fn generate_catalog() -> Catalog {
   let mut catalog = Catalog::new();
-  let authority_config = ForwardConfig {
-    name_servers: NameServerConfigGroup::cloudflare(),
-    options: None,
-  };
-  let authority =
-    ForwardAuthority::try_from_config(Name::root(), ZoneType::Primary, &authority_config).unwrap();
+  let name = Name::root();
+  let blacklist_authority = BlacklistAuthority::new(
+    name.clone(),
+    HashSet::new(),
+    NameServerConfigGroup::cloudflare(),
+  );
 
   catalog.upsert(
-    LowerName::from_str(".").unwrap(),
-    Box::new(Arc::new(authority)) as Box<dyn AuthorityObject>,
+    LowerName::new(&name),
+    Box::new(Arc::new(blacklist_authority)) as Box<dyn AuthorityObject>,
   );
 
   catalog
