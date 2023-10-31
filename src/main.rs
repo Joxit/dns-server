@@ -6,6 +6,9 @@ use hickory_server::{
   resolver::config::NameServerConfigGroup, ServerFuture,
 };
 use std::collections::HashSet;
+use std::io::{Read, Write};
+use std::path::PathBuf;
+use std::str::FromStr;
 use std::sync::Arc;
 use tokio::{net::UdpSocket, runtime};
 
@@ -18,6 +21,8 @@ pub struct DNSServer {
   port: u16,
   #[arg(long = "workers", default_value = "4")]
   worker: usize,
+  #[arg(long = "blacklist")]
+  blacklist: Option<PathBuf>,
 }
 
 fn main() {
@@ -30,7 +35,7 @@ fn main() {
     .build()
     .expect("failed to initialize Tokio Runtime");
 
-  let catalog = generate_catalog();
+  let catalog = args.generate_catalog();
 
   let mut server = ServerFuture::new(catalog);
 
@@ -54,19 +59,43 @@ fn main() {
   };
 }
 
-fn generate_catalog() -> Catalog {
-  let mut catalog = Catalog::new();
-  let name = Name::root();
-  let blacklist_authority = BlacklistAuthority::new(
-    name.clone(),
-    HashSet::new(),
-    NameServerConfigGroup::cloudflare(),
-  );
+impl DNSServer {
+  fn generate_catalog(&self) -> Catalog {
+    let mut catalog = Catalog::new();
+    let name = Name::root();
+    let blacklist_authority = BlacklistAuthority::new(
+      name.clone(),
+      self.get_blacklist(),
+      NameServerConfigGroup::cloudflare(),
+    );
 
-  catalog.upsert(
-    LowerName::new(&name),
-    Box::new(Arc::new(blacklist_authority)) as Box<dyn AuthorityObject>,
-  );
+    catalog.upsert(
+      LowerName::new(&name),
+      Box::new(Arc::new(blacklist_authority)) as Box<dyn AuthorityObject>,
+    );
 
-  catalog
+    catalog
+  }
+
+  fn get_blacklist(&self) -> HashSet<LowerName> {
+    match &self.blacklist {
+      Some(path) => {
+        let mut file = std::fs::File::open(path).unwrap();
+        let mut buffer = String::new();
+        file.read_to_string(&mut buffer).unwrap();
+        let mut set: HashSet<LowerName> = HashSet::new();
+
+        buffer
+          .split("\n")
+          .map(|domain| domain.trim().trim_end_matches("."))
+          .for_each(|domain| {
+            let lower_name = LowerName::from_str(&format!("{}.", domain)).unwrap();
+            set.insert(lower_name);
+          });
+
+        set
+      }
+      None => HashSet::new(),
+    }
+  }
 }
