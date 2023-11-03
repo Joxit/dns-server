@@ -51,7 +51,6 @@ impl Authority for BlacklistAuthority {
     self.inner.update(update).await
   }
 
-  /// Get the origin of this zone, i.e. example.com is the origin for www.example.com
   fn origin(&self) -> &LowerName {
     self.inner.origin()
   }

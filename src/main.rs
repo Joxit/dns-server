@@ -1,4 +1,4 @@
-use crate::authority::BlacklistAuthority;
+use crate::authority::{BlacklistAuthority, NoneAuthority};
 use clap::Parser;
 use hickory_server::resolver::Name;
 use hickory_server::{
@@ -6,7 +6,7 @@ use hickory_server::{
   resolver::config::NameServerConfigGroup, ServerFuture,
 };
 use std::collections::HashSet;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -23,6 +23,8 @@ pub struct DNSServer {
   worker: usize,
   #[arg(long = "blacklist")]
   blacklist: Option<PathBuf>,
+  #[arg(long = "zone-blacklist")]
+  zone_blacklist: Option<PathBuf>,
 }
 
 fn main() {
@@ -65,9 +67,16 @@ impl DNSServer {
     let name = Name::root();
     let blacklist_authority = BlacklistAuthority::new(
       name.clone(),
-      self.get_blacklist(),
+      self.get_blacklist(&self.blacklist),
       NameServerConfigGroup::cloudflare(),
     );
+
+    for domain in self.get_blacklist(&self.zone_blacklist).iter() {
+      catalog.upsert(
+        domain.clone(),
+        Box::new(Arc::new(NoneAuthority::new(domain.clone()))) as Box<dyn AuthorityObject>,
+      );
+    }
 
     catalog.upsert(
       LowerName::new(&name),
@@ -77,8 +86,8 @@ impl DNSServer {
     catalog
   }
 
-  fn get_blacklist(&self) -> HashSet<LowerName> {
-    match &self.blacklist {
+  fn get_blacklist(&self, list: &Option<PathBuf>) -> HashSet<LowerName> {
+    match &list {
       Some(path) => {
         let mut file = std::fs::File::open(path).unwrap();
         let mut buffer = String::new();
