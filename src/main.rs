@@ -19,6 +19,8 @@ pub mod authority;
 pub struct DNSServer {
   #[arg(long = "port", short = 'p', default_value = "53")]
   port: u16,
+  #[arg(long = "listen", short = 'l', default_value = "0.0.0.0")]
+  listen: String,
   #[arg(long = "workers", default_value = "4")]
   worker: usize,
   #[arg(long = "blacklist")]
@@ -42,8 +44,13 @@ fn main() {
   let mut server = ServerFuture::new(catalog);
 
   let udp_socket = runtime
-    .block_on(UdpSocket::bind(("0.0.0.0", args.port)))
-    .unwrap_or_else(|err| panic!("could not bind to UDP socket 0.0.0.0:{} : {err}", args.port));
+    .block_on(UdpSocket::bind((args.listen.clone(), args.port)))
+    .unwrap_or_else(|err| {
+      panic!(
+        "could not bind to UDP socket {}:{} : {err}",
+        args.listen, args.port
+      )
+    });
 
   let _guard = runtime.enter();
   server.register_socket(udp_socket);
