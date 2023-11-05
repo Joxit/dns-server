@@ -8,12 +8,15 @@ use hickory_server::{
   store::forwarder::ForwardLookup,
 };
 
+use tracing::{info, warn};
+
 pub struct NoneAuthority {
   origin: LowerName,
 }
 
 impl NoneAuthority {
   pub fn new(name: LowerName) -> Self {
+    info!("Domain zone {} will be ingnored", name);
     Self { origin: name }
   }
 }
@@ -52,7 +55,7 @@ impl Authority for NoneAuthority {
     request_info: RequestInfo<'_>,
     _lookup_options: LookupOptions,
   ) -> Result<Self::Lookup, LookupError> {
-    println!("none: {}", request_info.query.name());
+    warn!("Domain name ignored {}", request_info.query.name());
     Err(LookupError::ResponseCode(ResponseCode::NXDomain))
   }
 

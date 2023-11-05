@@ -11,7 +11,8 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::{net::UdpSocket, runtime};
-
+use tracing::info;
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 pub mod authority;
 
 #[derive(Parser, Debug)]
@@ -30,6 +31,7 @@ pub struct DNSServer {
 }
 
 fn main() {
+  logger();
   let args = DNSServer::parse();
 
   let runtime = runtime::Builder::new_multi_thread()
@@ -114,4 +116,18 @@ impl DNSServer {
       None => HashSet::new(),
     }
   }
+}
+
+fn logger() {
+  let filter = tracing_subscriber::EnvFilter::builder()
+    .with_default_directive(tracing::Level::WARN.into())
+    .from_env()
+    .expect("Fail to create logger");
+
+  let formatter = tracing_subscriber::fmt::layer();
+
+  tracing_subscriber::registry()
+    .with(formatter)
+    .with(filter)
+    .init();
 }

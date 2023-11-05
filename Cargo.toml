@@ -14,8 +14,7 @@ path = "src/main.rs"
 async-trait = "0.1.74"
 clap = { version = "^4.4", features = ["derive", "env"] }
 clap_complete = { version = "^4.4" }
-hickory-server = { version = "^0.24", features = [
-  "hickory-resolver",
-  "sqlite",
-] }
+hickory-server = { version = "^0.24", features = ["hickory-resolver"] }
 tokio = "^1.33"
+tracing = "0.1.40"
+tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }

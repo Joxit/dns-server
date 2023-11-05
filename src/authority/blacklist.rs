@@ -9,6 +9,7 @@ use hickory_server::{
   store::forwarder::{ForwardAuthority, ForwardConfig, ForwardLookup},
 };
 use std::collections::HashSet;
+use tracing::{info,warn};
 
 pub struct BlacklistAuthority {
   blacklisted: HashSet<LowerName>,
@@ -21,6 +22,7 @@ impl BlacklistAuthority {
     blacklisted: HashSet<LowerName>,
     name_servers: NameServerConfigGroup,
   ) -> Self {
+    info!("Domains {:?} will be ingnored", blacklisted);
     let authority_config = ForwardConfig {
       name_servers,
       options: None,
@@ -70,10 +72,9 @@ impl Authority for BlacklistAuthority {
     lookup_options: LookupOptions,
   ) -> Result<Self::Lookup, LookupError> {
     if self.blacklisted.contains(request_info.query.name()) {
-      println!("blacklisted: {}", request_info.query.name());
+      warn!("Domain name ignored {}", request_info.query.name());
       return Err(LookupError::ResponseCode(ResponseCode::NXDomain));
     }
-    println!("search: {}", request_info.query.name());
     self.inner.search(request_info, lookup_options).await
   }
 
