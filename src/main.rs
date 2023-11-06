@@ -11,7 +11,6 @@ use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::{net::UdpSocket, runtime};
-use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 pub mod authority;
 
@@ -106,6 +105,7 @@ impl DNSServer {
         buffer
           .split("\n")
           .map(|domain| domain.trim().trim_end_matches("."))
+          .filter(|domain| !domain.is_empty())
           .for_each(|domain| {
             let lower_name = LowerName::from_str(&format!("{}.", domain)).unwrap();
             set.insert(lower_name);
