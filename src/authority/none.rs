@@ -1,3 +1,4 @@
+use crate::authority::forge_ip_record;
 use hickory_server::{
   authority::{Authority, LookupError, LookupOptions, MessageRequest, UpdateResult, ZoneType},
   proto::{
@@ -7,17 +8,21 @@ use hickory_server::{
   server::RequestInfo,
   store::forwarder::ForwardLookup,
 };
-
+use std::net::Ipv4Addr;
 use tracing::{info, warn};
 
 pub struct NoneAuthority {
   origin: LowerName,
+  default_ip: Option<Ipv4Addr>,
 }
 
 impl NoneAuthority {
-  pub fn new(name: LowerName) -> Self {
+  pub fn new(name: LowerName, default_ip: Option<Ipv4Addr>) -> Self {
     info!("Domain zone {} will be ingnored", name);
-    Self { origin: name }
+    Self {
+      origin: name,
+      default_ip,
+    }
   }
 }
 
@@ -34,7 +39,7 @@ impl Authority for NoneAuthority {
   }
 
   async fn update(&self, _update: &MessageRequest) -> UpdateResult<bool> {
-    Err(ResponseCode::NXDomain)
+    Err(ResponseCode::NoError)
   }
 
   fn origin(&self) -> &LowerName {
@@ -47,7 +52,7 @@ impl Authority for NoneAuthority {
     _query_type: RecordType,
     _lookup_options: LookupOptions,
   ) -> Result<Self::Lookup, LookupError> {
-    Err(LookupError::ResponseCode(ResponseCode::NXDomain))
+    Err(LookupError::ResponseCode(ResponseCode::NoError))
   }
 
   async fn search(
@@ -56,7 +61,11 @@ impl Authority for NoneAuthority {
     _lookup_options: LookupOptions,
   ) -> Result<Self::Lookup, LookupError> {
     warn!("Domain name ignored {}", request_info.query.name());
-    Err(LookupError::ResponseCode(ResponseCode::NXDomain))
+    if let Some(ip) = self.default_ip {
+      Ok(forge_ip_record(ip, request_info))
+    } else {
+      Err(LookupError::ResponseCode(ResponseCode::NoError))
+    }
   }
 
   async fn get_nsec_records(
@@ -64,6 +73,6 @@ impl Authority for NoneAuthority {
     _name: &LowerName,
     _lookup_options: LookupOptions,
   ) -> Result<Self::Lookup, LookupError> {
-    Err(LookupError::ResponseCode(ResponseCode::NXDomain))
+    Err(LookupError::ResponseCode(ResponseCode::NoError))
   }
 }

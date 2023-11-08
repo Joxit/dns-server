@@ -2,16 +2,17 @@ use crate::authority::{BlacklistAuthority, NoneAuthority};
 use clap::Parser;
 use hickory_server::resolver::Name;
 use hickory_server::{
-  authority::AuthorityObject, authority::Catalog, proto::rr::LowerName,
-  resolver::config::NameServerConfigGroup, ServerFuture,
+  authority::Catalog, proto::rr::LowerName, resolver::config::NameServerConfigGroup, ServerFuture,
 };
 use std::collections::HashSet;
 use std::io::Read;
+use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
 use tokio::{net::UdpSocket, runtime};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
+
 pub mod authority;
 
 #[derive(Parser, Debug)]
@@ -25,6 +26,8 @@ pub struct DNSServer {
   worker: usize,
   #[arg(long = "blacklist")]
   blacklist: Option<PathBuf>,
+  #[arg(long = "default-ip")]
+  default_ip: Option<Ipv4Addr>,
   #[arg(long = "zone-blacklist")]
   zone_blacklist: Option<PathBuf>,
 }
@@ -77,18 +80,17 @@ impl DNSServer {
       name.clone(),
       self.get_blacklist(&self.blacklist),
       NameServerConfigGroup::cloudflare(),
+      self.default_ip.clone(),
     );
 
     for domain in self.get_blacklist(&self.zone_blacklist).iter() {
-      catalog.upsert(
-        domain.clone(),
-        Box::new(Arc::new(NoneAuthority::new(domain.clone()))) as Box<dyn AuthorityObject>,
-      );
+      let authority = NoneAuthority::new(domain.clone(), self.default_ip.clone());
+      catalog.upsert(domain.clone(), Box::new(Arc::new(authority)));
     }
 
     catalog.upsert(
       LowerName::new(&name),
-      Box::new(Arc::new(blacklist_authority)) as Box<dyn AuthorityObject>,
+      Box::new(Arc::new(blacklist_authority)),
     );
 
     catalog

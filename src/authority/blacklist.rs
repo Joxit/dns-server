@@ -1,3 +1,4 @@
+use crate::authority::forge_ip_record;
 use hickory_server::{
   authority::{Authority, LookupError, LookupOptions, MessageRequest, UpdateResult, ZoneType},
   proto::{
@@ -9,11 +10,13 @@ use hickory_server::{
   store::forwarder::{ForwardAuthority, ForwardConfig, ForwardLookup},
 };
 use std::collections::HashSet;
-use tracing::{info,warn};
+use std::net::Ipv4Addr;
+use tracing::{info, warn};
 
 pub struct BlacklistAuthority {
   blacklisted: HashSet<LowerName>,
   inner: ForwardAuthority,
+  default_ip: Option<Ipv4Addr>,
 }
 
 impl BlacklistAuthority {
@@ -21,6 +24,7 @@ impl BlacklistAuthority {
     name: Name,
     blacklisted: HashSet<LowerName>,
     name_servers: NameServerConfigGroup,
+    default_ip: Option<Ipv4Addr>,
   ) -> Self {
     info!("Domains {:?} will be ingnored", blacklisted);
     let authority_config = ForwardConfig {
@@ -33,6 +37,7 @@ impl BlacklistAuthority {
     Self {
       blacklisted,
       inner: forward_authority,
+      default_ip,
     }
   }
 }
@@ -73,9 +78,14 @@ impl Authority for BlacklistAuthority {
   ) -> Result<Self::Lookup, LookupError> {
     if self.blacklisted.contains(request_info.query.name()) {
       warn!("Domain name ignored {}", request_info.query.name());
-      return Err(LookupError::ResponseCode(ResponseCode::NXDomain));
+      if let Some(ip) = self.default_ip {
+        Ok(forge_ip_record(ip, request_info))
+      } else {
+        Err(LookupError::ResponseCode(ResponseCode::NoError))
+      }
+    } else {
+      self.inner.search(request_info, lookup_options).await
     }
-    self.inner.search(request_info, lookup_options).await
   }
 
   async fn get_nsec_records(
