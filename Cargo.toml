@@ -15,6 +15,9 @@ async-trait = "0.1.74"
 clap = { version = "^4.4", features = ["derive", "env"] }
 clap_complete = { version = "^4.4" }
 hickory-server = { version = "^0.24", features = ["hickory-resolver"] }
+hickory-client = { version = "^0.24", features = ["dns-over-https-rustls"] }
 tokio = "^1.33"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
+rustls = "^0.21"
+rustls-native-certs = "^0.6"

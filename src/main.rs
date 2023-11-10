@@ -1,4 +1,5 @@
 use crate::authority::{BlacklistAuthority, NoneAuthority};
+use crate::client::*;
 use clap::Parser;
 use hickory_server::resolver::Name;
 use hickory_server::{
@@ -14,6 +15,7 @@ use tokio::{net::UdpSocket, runtime};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub mod authority;
+pub mod client;
 
 #[derive(Parser, Debug)]
 #[structopt(name = "dns-server", author, version, about)]
@@ -30,6 +32,8 @@ pub struct DNSServer {
   default_ip: Option<Ipv4Addr>,
   #[arg(long = "zone-blacklist")]
   zone_blacklist: Option<PathBuf>,
+  #[arg(long = "doh")]
+  doh_server: Option<ClientType>,
 }
 
 fn main() {
