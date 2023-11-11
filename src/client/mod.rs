@@ -3,6 +3,7 @@ use hickory_client::proto::{
   h2::{HttpsClientStream, HttpsClientStreamBuilder},
   iocompat::AsyncIoTokioAsStd,
 };
+use hickory_server::resolver::config::NameServerConfigGroup;
 use rustls::ClientConfig;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -22,6 +23,15 @@ impl From<String> for ClientType {
       "cloudflare" => ClientType::CloudFlare,
       "google" => ClientType::Google,
       _ => ClientType::CloudFlare,
+    }
+  }
+}
+
+impl Into<NameServerConfigGroup> for ClientType {
+  fn into(self) -> NameServerConfigGroup {
+    match self {
+      ClientType::Google => NameServerConfigGroup::google(),
+      ClientType::CloudFlare => NameServerConfigGroup::cloudflare(),
     }
   }
 }

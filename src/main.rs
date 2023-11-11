@@ -1,10 +1,7 @@
-use crate::authority::{BlacklistAuthority, NoneAuthority};
+use crate::authority::{BlacklistAuthority, H2BlacklistAuthority, NoneAuthority};
 use crate::client::*;
 use clap::Parser;
-use hickory_server::resolver::Name;
-use hickory_server::{
-  authority::Catalog, proto::rr::LowerName, resolver::config::NameServerConfigGroup, ServerFuture,
-};
+use hickory_server::{authority::Catalog, proto::rr::LowerName, resolver::Name, ServerFuture};
 use std::collections::HashSet;
 use std::io::Read;
 use std::net::Ipv4Addr;
@@ -32,8 +29,10 @@ pub struct DNSServer {
   default_ip: Option<Ipv4Addr>,
   #[arg(long = "zone-blacklist")]
   zone_blacklist: Option<PathBuf>,
+  #[arg(long = "dns-server", default_value = "cloudflare")]
+  dns_server: ClientType,
   #[arg(long = "doh")]
-  doh_server: Option<ClientType>,
+  dns_over_https: bool,
 }
 
 fn main() {
@@ -47,7 +46,7 @@ fn main() {
     .build()
     .expect("failed to initialize Tokio Runtime");
 
-  let catalog = args.generate_catalog();
+  let catalog = runtime.block_on(args.generate_catalog());
 
   let mut server = ServerFuture::new(catalog);
 
@@ -77,25 +76,33 @@ fn main() {
 }
 
 impl DNSServer {
-  fn generate_catalog(&self) -> Catalog {
+  async fn generate_catalog(&self) -> Catalog {
     let mut catalog = Catalog::new();
     let name = Name::root();
-    let blacklist_authority = BlacklistAuthority::new(
-      name.clone(),
-      self.get_blacklist(&self.blacklist),
-      NameServerConfigGroup::cloudflare(),
-      self.default_ip.clone(),
-    );
 
     for domain in self.get_blacklist(&self.zone_blacklist).iter() {
       let authority = NoneAuthority::new(domain.clone(), self.default_ip.clone());
       catalog.upsert(domain.clone(), Box::new(Arc::new(authority)));
     }
 
-    catalog.upsert(
-      LowerName::new(&name),
-      Box::new(Arc::new(blacklist_authority)),
-    );
+    if self.dns_over_https {
+      let authority = H2BlacklistAuthority::new(
+        name.clone(),
+        self.get_blacklist(&self.blacklist),
+        self.dns_server.clone().into(),
+        self.default_ip.clone(),
+        get_client(self.dns_server.clone()).await.unwrap(),
+      );
+      catalog.upsert(LowerName::new(&name), Box::new(Arc::new(authority)));
+    } else {
+      let authority = BlacklistAuthority::new(
+        name.clone(),
+        self.get_blacklist(&self.blacklist),
+        self.dns_server.clone().into(),
+        self.default_ip.clone(),
+      );
+      catalog.upsert(LowerName::new(&name), Box::new(Arc::new(authority)));
+    };
 
     catalog
   }
