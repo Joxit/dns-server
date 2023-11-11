@@ -108,7 +108,7 @@ impl Authority for H2BlacklistAuthority {
       .await
       .unwrap();
 
-    Ok(dns_response_to_lookup(&response))
+    dns_response_to_lookup(&response)
   }
 
   async fn get_nsec_records(
@@ -120,12 +120,20 @@ impl Authority for H2BlacklistAuthority {
   }
 }
 
-pub fn dns_response_to_lookup(response: &DnsResponse) -> ForwardLookup {
-  let query = response.query().unwrap();
+pub fn dns_response_to_lookup(response: &DnsResponse) -> Result<ForwardLookup, LookupError> {
+  if response.response_code() != ResponseCode::NoError {
+    return Err(LookupError::ResponseCode(response.response_code()));
+  }
+  let query = response
+    .query()
+    .ok_or(LookupError::ResponseCode(ResponseCode::NXDomain))?;
   let records = response.answers();
-  let valid_until = Instant::now() + Duration::from_secs(u64::from(records[0].ttl()));
 
-  let lookup =
-    ResolverLookup::new_with_deadline(query.clone(), Arc::new([records[0].clone()]), valid_until);
-  ForwardLookup(lookup)
+  if records.is_empty() {
+    return Err(LookupError::ResponseCode(ResponseCode::NoError));
+  }
+
+  let valid_until = Instant::now() + Duration::from_secs(u64::from(records[0].ttl()));
+  let lookup = ResolverLookup::new_with_deadline(query.clone(), Arc::from(records), valid_until);
+  Ok(ForwardLookup(lookup))
 }
