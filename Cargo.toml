@@ -14,7 +14,8 @@ path = "src/main.rs"
 async-trait = "0.1.74"
 clap = { version = "^4.4", features = ["derive", "env"] }
 clap_complete = { version = "^4.4" }
-hickory-server = { version = "^0.24", features = ["hickory-resolver"] }
+hickory-server = { version = "^0.24", features = ["dns-over-https-rustls"] }
+hickory-resolver = { version = "^0.24", features = ["dns-over-https-rustls", "native-certs"] }
 hickory-client = { version = "^0.24", features = ["dns-over-https-rustls"] }
 tokio = "^1.33"
 tracing = "0.1.40"

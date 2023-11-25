@@ -1,11 +1,11 @@
 use crate::authority::forge_ip_record;
+use hickory_resolver::{config::NameServerConfigGroup, Name};
 use hickory_server::{
   authority::{Authority, LookupError, LookupOptions, MessageRequest, UpdateResult, ZoneType},
   proto::{
     op::ResponseCode,
     rr::{LowerName, RecordType},
   },
-  resolver::{config::NameServerConfigGroup, Name},
   server::RequestInfo,
   store::forwarder::{ForwardAuthority, ForwardConfig, ForwardLookup},
 };

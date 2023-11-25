@@ -1,4 +1,4 @@
-use crate::authority::{BlacklistAuthority, H2BlacklistAuthority, NoneAuthority};
+use crate::authority::{BlacklistAuthority, NoneAuthority};
 use crate::client::*;
 use clap::Parser;
 use hickory_server::{authority::Catalog, proto::rr::LowerName, resolver::Name, ServerFuture};
@@ -29,10 +29,9 @@ pub struct DNSServer {
   default_ip: Option<Ipv4Addr>,
   #[arg(long = "zone-blacklist")]
   zone_blacklist: Option<PathBuf>,
-  #[arg(long = "dns-server", default_value = "cloudflare")]
+  /// Possible values are `cloudflare`, `google`, `cloudflare:h2`, `google:h2`
+  #[arg(long = "dns-server", default_value = "cloudflare:h2")]
   dns_server: ClientType,
-  #[arg(long = "doh")]
-  dns_over_https: bool,
 }
 
 fn main() {
@@ -85,24 +84,14 @@ impl DNSServer {
       catalog.upsert(domain.clone(), Box::new(Arc::new(authority)));
     }
 
-    if self.dns_over_https {
-      let authority = H2BlacklistAuthority::new(
-        name.clone(),
-        self.get_blacklist(&self.blacklist),
-        self.dns_server.clone().into(),
-        self.default_ip.clone(),
-        get_client(self.dns_server.clone()).await.unwrap(),
-      );
-      catalog.upsert(LowerName::new(&name), Box::new(Arc::new(authority)));
-    } else {
-      let authority = BlacklistAuthority::new(
-        name.clone(),
-        self.get_blacklist(&self.blacklist),
-        self.dns_server.clone().into(),
-        self.default_ip.clone(),
-      );
-      catalog.upsert(LowerName::new(&name), Box::new(Arc::new(authority)));
-    };
+    let authority = BlacklistAuthority::new(
+      name.clone(),
+      self.get_blacklist(&self.blacklist),
+      self.dns_server.clone().into(),
+      self.default_ip.clone(),
+    );
+
+    catalog.upsert(LowerName::new(&name), Box::new(Arc::new(authority)));
 
     catalog
   }

@@ -7,11 +7,9 @@ use hickory_server::{
 use std::net::Ipv4Addr;
 use std::sync::Arc;
 mod blacklist;
-mod h2_blacklist;
 mod none;
 
 pub(crate) use crate::authority::blacklist::BlacklistAuthority;
-pub(crate) use crate::authority::h2_blacklist::H2BlacklistAuthority;
 pub(crate) use crate::authority::none::NoneAuthority;
 
 pub fn forge_ip_record(ip: Ipv4Addr, request_info: RequestInfo<'_>) -> ForwardLookup {
