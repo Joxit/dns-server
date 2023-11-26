@@ -29,7 +29,6 @@ pub struct DNSServer {
   default_ip: Option<Ipv4Addr>,
   #[arg(long = "zone-blacklist")]
   zone_blacklist: Option<PathBuf>,
-  /// Possible values are `cloudflare`, `google`, `cloudflare:h2`, `google:h2`
   #[arg(long = "dns-server", default_value = "cloudflare:h2")]
   dns_server: ClientType,
 }
@@ -90,7 +89,6 @@ impl DNSServer {
       self.dns_server.clone().into(),
       self.default_ip.clone(),
     );
-
     catalog.upsert(LowerName::new(&name), Box::new(Arc::new(authority)));
 
     catalog

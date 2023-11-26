@@ -1,3 +1,7 @@
+use clap::{
+  builder::{PossibleValue, TypedValueParser, ValueParserFactory},
+  Arg, Command,
+};
 use hickory_server::resolver::config::NameServerConfigGroup;
 
 #[derive(Debug, Clone)]
@@ -8,18 +12,6 @@ pub enum ClientType {
   GoogleH2,
 }
 
-impl From<String> for ClientType {
-  fn from(value: String) -> Self {
-    match value.to_lowercase().as_str() {
-      "cloudflare" => ClientType::CloudFlare,
-      "google" => ClientType::Google,
-      "cloudflare:h2" => ClientType::CloudFlareH2,
-      "google:h2" => ClientType::GoogleH2,
-      _ => ClientType::CloudFlare,
-    }
-  }
-}
-
 impl Into<NameServerConfigGroup> for ClientType {
   fn into(self) -> NameServerConfigGroup {
     match self {
@@ -28,5 +20,71 @@ impl Into<NameServerConfigGroup> for ClientType {
       ClientType::CloudFlareH2 => NameServerConfigGroup::cloudflare_https(),
       ClientType::GoogleH2 => NameServerConfigGroup::google_https(),
     }
+  }
+}
+
+#[derive(Clone)]
+pub struct ClientTypeParser {}
+
+impl ClientTypeParser {
+  pub fn new() -> Self {
+    Self {}
+  }
+
+  fn possible_vals() -> Vec<&'static str> {
+    vec!["cloudflare", "google", "cloudflare:h2", "google:h2"]
+  }
+}
+
+impl TypedValueParser for ClientTypeParser {
+  type Value = ClientType;
+
+  fn parse_ref(
+    &self,
+    cmd: &Command,
+    arg: Option<&Arg>,
+    value: &std::ffi::OsStr,
+  ) -> Result<Self::Value, clap::Error> {
+    use clap::error::{ContextKind, ContextValue};
+    match value.to_string_lossy().to_lowercase().as_str() {
+      "cloudflare" => Ok(ClientType::CloudFlare),
+      "google" => Ok(ClientType::Google),
+      "cloudflare:h2" => Ok(ClientType::CloudFlareH2),
+      "google:h2" => Ok(ClientType::GoogleH2),
+      _ => {
+        let mut error = clap::Error::new(clap::error::ErrorKind::InvalidValue).with_cmd(cmd);
+        error.insert(
+          ContextKind::InvalidArg,
+          ContextValue::String(arg.unwrap().to_string()),
+        );
+        error.insert(
+          ContextKind::InvalidValue,
+          ContextValue::String(value.to_string_lossy().to_string()),
+        );
+        error.insert(
+          ContextKind::ValidValue,
+          ContextValue::Strings(
+            Self::possible_vals()
+              .iter()
+              .map(|value| value.to_string())
+              .collect(),
+          ),
+        );
+        Err(error)
+      }
+    }
+  }
+
+  fn possible_values(&self) -> Option<Box<dyn Iterator<Item = PossibleValue> + '_>> {
+    let vals = Self::possible_vals();
+    let values: Vec<PossibleValue> = vals.iter().map(|name| PossibleValue::new(name)).collect();
+    Some(Box::new(values.into_iter()))
+  }
+}
+
+impl ValueParserFactory for ClientType {
+  type Parser = ClientTypeParser;
+  fn value_parser() -> <Self as ValueParserFactory>::Parser {
+    ClientTypeParser::new()
   }
 }
