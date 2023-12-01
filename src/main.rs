@@ -1,14 +1,24 @@
 use crate::authority::{BlacklistAuthority, NoneAuthority};
 use crate::client::*;
-use clap::Parser;
-use hickory_server::{authority::Catalog, proto::rr::LowerName, resolver::Name, ServerFuture};
+use clap::{builder::ArgPredicate, Parser};
+use hickory_server::{
+  authority::Catalog,
+  proto::rr::LowerName,
+  proto::rustls::tls_server::{read_cert, read_key},
+  resolver::Name,
+  ServerFuture,
+};
 use std::collections::HashSet;
 use std::io::Read;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
-use tokio::{net::UdpSocket, runtime};
+use std::time::Duration;
+use tokio::{
+  net::{TcpListener, UdpSocket},
+  runtime,
+};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub mod authority;
@@ -31,6 +41,17 @@ pub struct DNSServer {
   zone_blacklist: Option<PathBuf>,
   #[arg(long = "dns-server", default_value = "cloudflare:h2")]
   dns_server: ClientType,
+  #[arg(
+    long = "h2",
+    default_value_if("h2_port", ArgPredicate::IsPresent, Some("true"))
+  )]
+  h2: bool,
+  #[arg(long = "h2-port", default_value("443"))]
+  h2_port: u16,
+  #[arg(long = "tls-certificate")]
+  tls_certificate: Option<PathBuf>,
+  #[arg(long = "tls-private-key")]
+  tls_private_key: Option<PathBuf>,
 }
 
 fn main() {
@@ -59,6 +80,25 @@ fn main() {
 
   let _guard = runtime.enter();
   server.register_socket(udp_socket);
+
+  if args.h2 {
+    let https_listener = runtime
+      .block_on(TcpListener::bind((args.listen.clone(), args.h2_port)))
+      .unwrap();
+
+    let _guard = runtime.enter();
+    let certs = read_cert(args.tls_certificate.unwrap().as_path()).unwrap();
+    let private_key = read_key(args.tls_private_key.unwrap().as_path()).unwrap();
+    server
+      .register_https_listener(
+        https_listener,
+        Duration::from_secs(2),
+        (certs, private_key),
+        None,
+      )
+      .expect("could not register HTTPS listener");
+  }
+
   match runtime.block_on(server.block_until_done()) {
     Ok(()) => {}
     Err(e) => {
