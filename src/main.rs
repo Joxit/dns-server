@@ -24,32 +24,44 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 pub mod authority;
 pub mod client;
 
+/// Create a DNS server you can configure to block some domain and zones. You can use UDP or H2 as listener (frontend) and resolver (backend).
 #[derive(Parser, Debug)]
 #[structopt(name = "dns-server", author, version, about)]
 pub struct DNSServer {
+  /// Listen port of the classic DNS server over UDP.
   #[arg(long = "port", short = 'p', default_value = "53")]
   port: u16,
+  /// Listen adress of the server.
   #[arg(long = "listen", short = 'l', default_value = "0.0.0.0")]
   listen: String,
+  /// Number of workers to setup
   #[arg(long = "workers", default_value = "4")]
   worker: usize,
+  /// File containing a list of exact domains to block.
   #[arg(long = "blacklist")]
   blacklist: Option<PathBuf>,
+  /// Default IP address to return when the domain is blocked instead of an empty NoError response.
   #[arg(long = "default-ip")]
   default_ip: Option<Ipv4Addr>,
+  /// File containing a list of zone of domains to block, this will block the domain and all subdomains.
   #[arg(long = "zone-blacklist")]
   zone_blacklist: Option<PathBuf>,
+  /// Setup your trusted dns resolver, could be cloudflare or google with UPD or H2.
   #[arg(long = "dns-server", default_value = "cloudflare:h2")]
   dns_server: ClientType,
+  /// Activate https/h2 server beside classic DNS server over UDP.
   #[arg(
     long = "h2",
     default_value_if("h2_port", ArgPredicate::IsPresent, Some("true"))
   )]
   h2: bool,
+  /// Listen port of the https/h2 server.
   #[arg(long = "h2-port", default_value("443"))]
   h2_port: u16,
+  /// Path of the certificate for the https/h2 server.
   #[arg(long = "tls-certificate")]
   tls_certificate: Option<PathBuf>,
+  /// Path of the private key for the https/h2 server.
   #[arg(long = "tls-private-key")]
   tls_private_key: Option<PathBuf>,
 }

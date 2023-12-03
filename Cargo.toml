@@ -20,5 +20,5 @@ hickory-client = { version = "^0.24", features = ["dns-over-https-rustls"] }
 tokio = "^1.33"
 tracing = "0.1.40"
 tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
-rustls = "^0.21"
-rustls-native-certs = "^0.6"
+rustls = "^0.22"
+rustls-native-certs = "^0.7"
