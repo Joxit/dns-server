@@ -58,6 +58,15 @@ pub struct DNSServer {
   /// Listen port of the https/h2 server.
   #[arg(long = "h2-port", default_value("443"))]
   h2_port: u16,
+  /// Activate DNS over TLS (UDP) server beside classic DNS server over UDP.
+  #[arg(
+    long = "tls",
+    default_value_if("tls_port", ArgPredicate::IsPresent, Some("true"))
+  )]
+  tls: bool,
+  /// Listen port of the Dns over TLS (UDP) server.
+  #[arg(long = "tls-port", default_value("853"))]
+  tls_port: u16,
   /// Path of the certificate for the https/h2 server.
   #[arg(long = "tls-certificate")]
   tls_certificate: Option<PathBuf>,
@@ -99,8 +108,8 @@ fn main() {
       .unwrap();
 
     let _guard = runtime.enter();
-    let certs = read_cert(args.tls_certificate.unwrap().as_path()).unwrap();
-    let private_key = read_key(args.tls_private_key.unwrap().as_path()).unwrap();
+    let certs = read_cert(args.tls_certificate.clone().unwrap().as_path()).unwrap();
+    let private_key = read_key(args.tls_private_key.clone().unwrap().as_path()).unwrap();
     server
       .register_https_listener(
         https_listener,
@@ -109,6 +118,19 @@ fn main() {
         None,
       )
       .expect("could not register HTTPS listener");
+  }
+
+  if args.tls {
+    let tls_listener = runtime
+      .block_on(TcpListener::bind((args.listen.clone(), args.tls_port)))
+      .unwrap();
+
+    let _guard = runtime.enter();
+    let certs = read_cert(args.tls_certificate.clone().unwrap().as_path()).unwrap();
+    let private_key = read_key(args.tls_private_key.clone().unwrap().as_path()).unwrap();
+    server
+      .register_tls_listener(tls_listener, Duration::from_secs(2), (certs, private_key))
+      .expect("could not register TLS listener");
   }
 
   match runtime.block_on(server.block_until_done()) {
