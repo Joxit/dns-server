@@ -19,6 +19,8 @@ use tokio::{
   net::{TcpListener, UdpSocket},
   runtime,
 };
+use tokio_graceful::Shutdown;
+use tracing::info;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub mod authority;
@@ -90,6 +92,7 @@ fn main() {
 
   let mut server = ServerFuture::new(catalog);
 
+  info!("Will listen UDP resquests on {}:{}", args.listen, args.port);
   let udp_socket = runtime
     .block_on(UdpSocket::bind((args.listen.clone(), args.port)))
     .unwrap_or_else(|err| {
@@ -103,6 +106,10 @@ fn main() {
   server.register_socket(udp_socket);
 
   if args.h2 {
+    info!(
+      "Will listen HTTPS/H2 resquests on {}:{}",
+      args.listen, args.h2_port
+    );
     let https_listener = runtime
       .block_on(TcpListener::bind((args.listen.clone(), args.h2_port)))
       .unwrap();
@@ -121,6 +128,10 @@ fn main() {
   }
 
   if args.tls {
+    info!(
+      "Will listen TLS/TCP resquests on {}:{}",
+      args.listen, args.tls_port
+    );
     let tls_listener = runtime
       .block_on(TcpListener::bind((args.listen.clone(), args.tls_port)))
       .unwrap();
@@ -133,18 +144,10 @@ fn main() {
       .expect("could not register TLS listener");
   }
 
-  match runtime.block_on(server.block_until_done()) {
-    Ok(()) => {}
-    Err(e) => {
-      let error_msg = format!(
-        "Hickory DNS {} has encountered an error: {}",
-        hickory_server::version(),
-        e
-      );
-
-      panic!("{}", error_msg);
-    }
-  };
+  let shutdown = Shutdown::default();
+  runtime
+    .block_on(shutdown.shutdown_with_limit(Duration::from_secs(5)))
+    .unwrap();
 }
 
 impl DNSServer {
