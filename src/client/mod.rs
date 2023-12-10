@@ -8,6 +8,8 @@ use hickory_server::resolver::config::NameServerConfigGroup;
 pub enum ClientType {
   CloudFlare,
   Google,
+  CloudFlareTLS,
+  GoogleTLS,
   CloudFlareH2,
   GoogleH2,
 }
@@ -17,6 +19,8 @@ impl Into<NameServerConfigGroup> for ClientType {
     match self {
       ClientType::Google => NameServerConfigGroup::google(),
       ClientType::CloudFlare => NameServerConfigGroup::cloudflare(),
+      ClientType::GoogleTLS => NameServerConfigGroup::google_tls(),
+      ClientType::CloudFlareTLS => NameServerConfigGroup::cloudflare_tls(),
       ClientType::CloudFlareH2 => NameServerConfigGroup::cloudflare_https(),
       ClientType::GoogleH2 => NameServerConfigGroup::google_https(),
     }
@@ -32,7 +36,7 @@ impl ClientTypeParser {
   }
 
   fn possible_vals() -> Vec<&'static str> {
-    vec!["cloudflare", "google", "cloudflare:h2", "google:h2"]
+    vec!["cloudflare", "google", "cloudflare:tls", "google:tls", "cloudflare:h2", "google:h2"]
   }
 }
 
@@ -49,6 +53,8 @@ impl TypedValueParser for ClientTypeParser {
     match value.to_string_lossy().to_lowercase().as_str() {
       "cloudflare" => Ok(ClientType::CloudFlare),
       "google" => Ok(ClientType::Google),
+      "cloudflare:tls" => Ok(ClientType::CloudFlareTLS),
+      "google:tls" => Ok(ClientType::GoogleTLS),
       "cloudflare:h2" => Ok(ClientType::CloudFlareH2),
       "google:h2" => Ok(ClientType::GoogleH2),
       _ => {

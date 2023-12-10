@@ -24,7 +24,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 pub mod authority;
 pub mod client;
 
-/// Create a DNS server you can configure to block some domain and zones. You can use UDP or H2 as listener (frontend) and resolver (backend).
+/// Create a DNS server you can configure to block some domain and zones. You can use UDP or DNS over TLS/TCP (DoT) or DNS over HTTPS/H2 (DoH) as listeners (frontend) and resolver (backend).
 #[derive(Parser, Debug)]
 #[structopt(name = "dns-server", author, version, about)]
 pub struct DNSServer {
@@ -58,13 +58,13 @@ pub struct DNSServer {
   /// Listen port of the https/h2 server.
   #[arg(long = "h2-port", default_value("443"))]
   h2_port: u16,
-  /// Activate DNS over TLS (UDP) server beside classic DNS server over UDP.
+  /// Activate DNS over TLS (TCP) server beside classic DNS server over UDP.
   #[arg(
     long = "tls",
     default_value_if("tls_port", ArgPredicate::IsPresent, Some("true"))
   )]
   tls: bool,
-  /// Listen port of the Dns over TLS (UDP) server.
+  /// Listen port of the Dns over TLS (TCP) server.
   #[arg(long = "tls-port", default_value("853"))]
   tls_port: u16,
   /// Path of the certificate for the https/h2 server.
