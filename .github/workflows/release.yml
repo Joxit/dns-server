@@ -1,0 +1,45 @@
+name: Release
+
+on:
+  push:
+    tags: ['*']
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v2
+      with:
+        fetch-depth: 0
+    - name: Build
+      run: cargo build --release
+    - name: Run tests
+      run: cargo test
+    - name: Download kokai
+      run: curl -sSL https://github.com/Joxit/kokai/releases/download/$(curl -sSL https://api.github.com/repos/Joxit/kokai/releases/latest | jq -r ".tag_name")/kokai-linux-x86_64 > kokai
+    - name: Create Release Note
+      run: chmod +x kokai && ./kokai release --ref ${{ github.ref }} --tag-from-ref . > RELEASE_NOTE.md
+    - name: Create Release
+      id: create_release
+      uses: actions/create-release@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        tag_name: ${{ github.ref }}
+        release_name: Release ${{ github.ref }}
+        body_path: RELEASE_NOTE.md
+        draft: false
+        prerelease: false
+    - name: Upload Release Asset
+      id: upload-release-asset
+      uses: actions/upload-release-asset@v1
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      with:
+        upload_url: ${{ steps.create_release.outputs.upload_url }}
+        asset_path: ./target/release/dns-server
+        asset_content_type: application/octet-stream
+        asset_name: dns-server-x86_64
