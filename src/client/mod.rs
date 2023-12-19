@@ -3,6 +3,7 @@ use clap::{
   Arg, Command,
 };
 use hickory_server::resolver::config::NameServerConfigGroup;
+use std::net::IpAddr;
 
 #[derive(Debug, Clone)]
 pub enum ClientType {
@@ -12,6 +13,9 @@ pub enum ClientType {
   GoogleTLS,
   CloudFlareH2,
   GoogleH2,
+  CustomDNS(IpAddr, u16),
+  CustomTLS(IpAddr, String, u16),
+  CustomH2(IpAddr, String, u16),
 }
 
 impl Into<NameServerConfigGroup> for ClientType {
@@ -23,6 +27,13 @@ impl Into<NameServerConfigGroup> for ClientType {
       ClientType::CloudFlareTLS => NameServerConfigGroup::cloudflare_tls(),
       ClientType::CloudFlareH2 => NameServerConfigGroup::cloudflare_https(),
       ClientType::GoogleH2 => NameServerConfigGroup::google_https(),
+      ClientType::CustomDNS(ip, port) => NameServerConfigGroup::from_ips_clear(&[ip], port, true),
+      ClientType::CustomTLS(ip, domain, port) => {
+        NameServerConfigGroup::from_ips_tls(&[ip], port, domain, true)
+      }
+      ClientType::CustomH2(ip, domain, port) => {
+        NameServerConfigGroup::from_ips_https(&[ip], port, domain, true)
+      }
     }
   }
 }
@@ -36,7 +47,14 @@ impl ClientTypeParser {
   }
 
   fn possible_vals() -> Vec<&'static str> {
-    vec!["cloudflare", "google", "cloudflare:tls", "google:tls", "cloudflare:h2", "google:h2"]
+    vec![
+      "cloudflare",
+      "google",
+      "cloudflare:tls",
+      "google:tls",
+      "cloudflare:h2",
+      "google:h2",
+    ]
   }
 }
 
