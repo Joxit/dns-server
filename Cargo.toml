@@ -23,3 +23,5 @@ tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
 rustls = "^0.22"
 rustls-native-certs = "^0.7"
 tokio-graceful = "^0.1"
+regex = "1.10.2"
+anyhow = "1.0.76"

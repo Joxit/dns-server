@@ -1,11 +1,13 @@
+use anyhow::{anyhow, bail, Result};
 use clap::{
   builder::{PossibleValue, TypedValueParser, ValueParserFactory},
   Arg, Command,
 };
 use hickory_server::resolver::config::NameServerConfigGroup;
-use std::net::IpAddr;
+use regex::Regex;
+use std::net::{IpAddr, Ipv4Addr};
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum ClientType {
   CloudFlare,
   Google,
@@ -110,5 +112,62 @@ impl ValueParserFactory for ClientType {
   type Parser = ClientTypeParser;
   fn value_parser() -> <Self as ValueParserFactory>::Parser {
     ClientTypeParser::new()
+  }
+}
+
+impl TryFrom<&str> for ClientType {
+  type Error = anyhow::Error;
+
+  fn try_from(s: &str) -> Result<ClientType, Self::Error> {
+    let regex = Regex::new(r"^(?<ip>\d+.\d+.\d+.\d+)(:(?<port>\d+)?)?$").unwrap();
+    let Some(caps) = regex.captures(s) else {
+      bail!("The option is not recognized");
+    };
+    let ip: IpAddr = caps
+      .name("ip")
+      .map_or(Err(anyhow!("IP of the dns server not found")), |ip| {
+        Ok(ip.as_str().parse::<Ipv4Addr>()?.into())
+      })?;
+
+    let port = caps.name("port").map_or(Ok(None), |port| {
+      let p = port.as_str().parse::<u16>()?;
+      if p > 0 {
+        Ok(Some(p))
+      } else {
+        Err(anyhow!("Port must be greater than 0. found {}", p))
+      }
+    })?;
+
+    Ok(ClientType::CustomDNS(ip, port.unwrap_or(53)))
+  }
+}
+
+#[cfg(test)]
+mod test {
+  use super::*;
+
+  fn ipv4(ip: &str) -> IpAddr {
+    IpAddr::V4(ip.parse::<Ipv4Addr>().unwrap())
+  }
+
+  #[test]
+  pub fn covert_custom_dns() {
+    let ip = ClientType::try_from("1.1.1.1");
+    let ip_port = ClientType::try_from("1.1.1.1:1053");
+
+    assert!(ip.is_ok());
+    assert!(ip_port.is_ok());
+
+    assert_eq!(ip.unwrap(), ClientType::CustomDNS(ipv4("1.1.1.1"), 53));
+    assert_eq!(
+      ip_port.unwrap(),
+      ClientType::CustomDNS(ipv4("1.1.1.1"), 1053)
+    );
+
+    assert!(ClientType::try_from("1.1.1.1:-53").is_err());
+    assert!(ClientType::try_from("1.1.1.1:0").is_err());
+    assert!(ClientType::try_from("example.com:53").is_err());
+    assert!(ClientType::try_from("example.com").is_err());
+    assert!(ClientType::try_from("256.255.254.253").is_err());
   }
 }
