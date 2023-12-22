@@ -5,7 +5,7 @@ use clap::{
 };
 use hickory_server::resolver::config::NameServerConfigGroup;
 use regex::Regex;
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClientType {
@@ -120,16 +120,21 @@ impl TryFrom<&str> for ClientType {
 
   fn try_from(s: &str) -> Result<ClientType, Self::Error> {
     let regex =
-      Regex::new(r"^(?<ip>\d+.\d+.\d+.\d+)(:(?<port>\d+)?:?((?<proto>h2|tls):(?<domain>.*))?)?$")
+      Regex::new(r"^((?<ipv4>\d+.\d+.\d+.\d+)|\[(?<ipv6>[a-fA-F0-9:]+)\])(:(?<port>\d+)?:?((?<proto>h2|tls):(?<domain>.*))?)?$")
         .unwrap();
     let Some(caps) = regex.captures(s) else {
       bail!("The option is not recognized");
     };
-    let ip: IpAddr = caps
-      .name("ip")
+    println!("{:?}", caps);
+    let ip4: Result<IpAddr> = caps
+      .name("ipv4")
       .map_or(Err(anyhow!("IP of the dns server not found")), |ip| {
         Ok(ip.as_str().parse::<Ipv4Addr>()?.into())
-      })?;
+      });
+
+    let ip: IpAddr = caps
+      .name("ipv6")
+      .map_or(ip4, |ip| Ok(ip.as_str().parse::<Ipv6Addr>()?.into()))?;
 
     let port = caps.name("port").map_or(Ok(None), |port| {
       let p = port.as_str().parse::<u16>()?;
@@ -172,23 +177,40 @@ mod test {
   fn ipv4(ip: &str) -> IpAddr {
     IpAddr::V4(ip.parse::<Ipv4Addr>().unwrap())
   }
+  fn ipv6(ip: &str) -> IpAddr {
+    IpAddr::V6(ip.parse::<Ipv6Addr>().unwrap())
+  }
 
   #[test]
   pub fn covert_custom_dns() {
-    let ip = ClientType::try_from("1.1.1.1");
-    let ip_port = ClientType::try_from("1.1.1.1:1053");
+    let ip4 = ClientType::try_from("1.1.1.1");
+    let ip4_port = ClientType::try_from("1.1.1.1:1053");
+    let ip6 = ClientType::try_from("[2606:4700:4700::1111]");
+    let ip6_port = ClientType::try_from("[2606:4700:4700::1111]:1053");
 
-    assert!(ip.is_ok());
-    assert!(ip_port.is_ok());
+    assert!(ip4.is_ok());
+    assert!(ip4_port.is_ok());
+    assert!(ip6.is_ok());
+    assert!(ip6_port.is_ok());
 
-    assert_eq!(ip.unwrap(), ClientType::CustomDNS(ipv4("1.1.1.1"), 53));
+    assert_eq!(ip4.unwrap(), ClientType::CustomDNS(ipv4("1.1.1.1"), 53));
     assert_eq!(
-      ip_port.unwrap(),
+      ip4_port.unwrap(),
       ClientType::CustomDNS(ipv4("1.1.1.1"), 1053)
+    );
+    assert_eq!(
+      ip6.unwrap(),
+      ClientType::CustomDNS(ipv6("2606:4700:4700::1111"), 53)
+    );
+    assert_eq!(
+      ip6_port.unwrap(),
+      ClientType::CustomDNS(ipv6("2606:4700:4700::1111"), 1053)
     );
 
     assert!(ClientType::try_from("1.1.1.1:-53").is_err());
     assert!(ClientType::try_from("1.1.1.1:0").is_err());
+    assert!(ClientType::try_from("2606:4700:4700::111").is_err());
+    assert!(ClientType::try_from("6:4:4:2:1").is_err());
     assert!(ClientType::try_from("example.com:53").is_err());
     assert!(ClientType::try_from("example.com").is_err());
     assert!(ClientType::try_from("256.255.254.253").is_err());
@@ -197,19 +219,29 @@ mod test {
   #[test]
   pub fn covert_custom_tls() {
     let cloudflare = "cloudflare-dns.com";
-    let ip = ClientType::try_from("1.1.1.1:tls:cloudflare-dns.com");
-    let ip_port = ClientType::try_from("1.1.1.1:1853:tls:cloudflare-dns.com");
+    let ip4 = ClientType::try_from("1.1.1.1:tls:cloudflare-dns.com");
+    let ip4_port = ClientType::try_from("1.1.1.1:1853:tls:cloudflare-dns.com");
+    let ip6 = ClientType::try_from("[2606:4700:4700::1111]:tls:cloudflare-dns.com");
+    let ip6_port = ClientType::try_from("[2606:4700:4700::1111]:1853:tls:cloudflare-dns.com");
 
-    assert!(ip.is_ok());
-    assert!(ip_port.is_ok());
+    assert!(ip4.is_ok());
+    assert!(ip4_port.is_ok());
 
     assert_eq!(
-      ip.unwrap(),
+      ip4.unwrap(),
       ClientType::CustomTLS(ipv4("1.1.1.1"), cloudflare.to_string(), 853)
     );
     assert_eq!(
-      ip_port.unwrap(),
+      ip4_port.unwrap(),
       ClientType::CustomTLS(ipv4("1.1.1.1"), cloudflare.to_string(), 1853)
+    );
+    assert_eq!(
+      ip6.unwrap(),
+      ClientType::CustomTLS(ipv6("2606:4700:4700::1111"), cloudflare.to_string(), 853)
+    );
+    assert_eq!(
+      ip6_port.unwrap(),
+      ClientType::CustomTLS(ipv6("2606:4700:4700::1111"), cloudflare.to_string(), 1853)
     );
 
     assert!(ClientType::try_from("1.1.1.1:853:tls").is_err());
@@ -223,24 +255,35 @@ mod test {
   #[test]
   pub fn covert_custom_h2() {
     let cloudflare = "cloudflare-dns.com";
-    let ip = ClientType::try_from("1.1.1.1:h2:cloudflare-dns.com");
-    let ip_port = ClientType::try_from("1.1.1.1:1443:h2:cloudflare-dns.com");
+    let ip4 = ClientType::try_from("1.1.1.1:h2:cloudflare-dns.com");
+    let ip4_port = ClientType::try_from("1.1.1.1:1443:h2:cloudflare-dns.com");
+    let ip6 = ClientType::try_from("[2606:4700:4700::1111]:h2:cloudflare-dns.com");
+    let ip6_port = ClientType::try_from("[2606:4700:4700::1111]:1443:h2:cloudflare-dns.com");
 
-    assert!(ip.is_ok());
-    assert!(ip_port.is_ok());
+    assert!(ip4.is_ok());
+    assert!(ip4_port.is_ok());
 
     assert_eq!(
-      ip.unwrap(),
+      ip4.unwrap(),
       ClientType::CustomH2(ipv4("1.1.1.1"), cloudflare.to_string(), 443)
     );
     assert_eq!(
-      ip_port.unwrap(),
+      ip4_port.unwrap(),
       ClientType::CustomH2(ipv4("1.1.1.1"), cloudflare.to_string(), 1443)
+    );
+    assert_eq!(
+      ip6.unwrap(),
+      ClientType::CustomH2(ipv6("2606:4700:4700::1111"), cloudflare.to_string(), 443)
+    );
+    assert_eq!(
+      ip6_port.unwrap(),
+      ClientType::CustomH2(ipv6("2606:4700:4700::1111"), cloudflare.to_string(), 1443)
     );
 
     assert!(ClientType::try_from("1.1.1.1:443:h2").is_err());
     assert!(ClientType::try_from("1.1.1.1:-443:h2:cloudflare-dns.com").is_err());
     assert!(ClientType::try_from("1.1.1.1:0:h2:cloudflare-dns.com").is_err());
+    assert!(ClientType::try_from("6:4700:4700::111:h2:cloudflare-dns.com").is_err());
     assert!(ClientType::try_from("example.com:443:h2:cloudflare-dns.com").is_err());
     assert!(ClientType::try_from("example.com:h2:cloudflare-dns.com").is_err());
     assert!(ClientType::try_from("256.255.254.253:h2:cloudflare-dns.com").is_err());
