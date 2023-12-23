@@ -56,6 +56,10 @@ impl ClientTypeParser {
       "google:tls",
       "cloudflare:h2",
       "google:h2",
+      "ipv4:port",
+      "[ipv6]:port",
+      "ipv4:port:<tls|h2>:domain",
+      "[ipv6]:port:<tls|h2>:domain",
     ]
   }
 }

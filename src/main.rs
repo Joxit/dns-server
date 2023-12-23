@@ -48,7 +48,7 @@ pub struct DNSServer {
   /// File containing a list of zone of domains to block, this will block the domain and all subdomains.
   #[arg(long = "zone-blacklist")]
   zone_blacklist: Option<PathBuf>,
-  /// Setup your trusted dns resolver, could be cloudflare or google with UPD or H2.
+  /// Setup your trusted dns resolver, could be cloudflare or google with UDP, TLS or H2. The port is optional when you are using custom IP. When you use TLS or H2 protocols, you must add the domain name too.
   #[arg(long = "dns-server", default_value = "cloudflare:h2")]
   dns_server: ClientType,
   /// Activate https/h2 server beside classic DNS server over UDP.

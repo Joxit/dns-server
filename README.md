@@ -33,7 +33,7 @@ Options:
       --zone-blacklist <ZONE_BLACKLIST>
           File containing a list of zone of domains to block, this will block the domain and all subdomains
       --dns-server <DNS_SERVER>
-          Setup your trusted dns resolver, could be cloudflare or google with UPD or H2 [default: cloudflare:h2] [possible values: cloudflare, google, cloudflare:tls, google:tls, cloudflare:h2, google:h2]
+          Setup your trusted dns resolver, could be cloudflare or google with UDP, TLS or H2. The port is optional when you are using custom IP. When you use TLS or H2 protocols, you must add the domain name too [default: cloudflare:h2] [possible values: cloudflare, google, cloudflare:tls, google:tls, cloudflare:h2, google:h2, ipv4:port, [ipv6]:port, ipv4:port:<tls|h2>:domain, [ipv6]:port:<tls|h2>:domain]
       --h2
           Activate https/h2 server beside classic DNS server over UDP
       --h2-port <H2_PORT>
@@ -57,3 +57,33 @@ Options:
 You have two ways to block domain names, both are based on files, one domain per line. All domains in the file given to `--blacklist` will be blocked only if they exactly match the query. By using `--zone-blacklist` you will block the domain and all its subdomains.
 
 You have the choice between returning a specific IP with `--default-ip` for your blocked domain or send an empty response.
+
+## DNS Server resolver
+
+You can add another DNS resolver (different than Cloudflare and Google) with the `--dns-server` option. The format is `ip:port:protocol:domain`. Some examples with ipv4 and ipv6 and cloudflare IPs.
+
+```
+# UDP DNS IPv4
+--dns-server 1.1.1.1 # cloudflare UDP DNS IPv4 with default port
+--dns-server 1.1.1.1:53 # cloudflare UDP DNS IPv4
+
+# UDP DNS IPv6
+--dns-server [2606:4700:4700::1111] # cloudflare UDP DNS IPv6 with default port
+--dns-server [2606:4700:4700::1111]:53 # cloudflare UDP DNS IPv6
+
+# TLS DNS IPv4
+--dns-server 1.1.1.1:tls:cloudflare-dns.com # cloudflare TLS DNS IPv4 with default port
+--dns-server 1.1.1.1:853:tls:cloudflare-dns.com # cloudflare TLS DNS IPv4
+
+# TLS DNS IPv6
+--dns-server [2606:4700:4700::1111]:tls:cloudflare-dns.com # cloudflare TLS DNS IPv6 with default port
+--dns-server [2606:4700:4700::1111]:853:tls:cloudflare-dns.com # cloudflare TLS DNS IPv6
+
+# H2 DNS IPv4
+--dns-server 1.1.1.1:h2:cloudflare-dns.com # cloudflare H2 DNS IPv4 with default port
+--dns-server 1.1.1.1:443:h2:cloudflare-dns.com # cloudflare H2 DNS IPv4
+
+# H2 DNS IPv6
+--dns-server [2606:4700:4700::1111]:h2:cloudflare-dns.com # cloudflare H2 DNS IPv6 with default port
+--dns-server [2606:4700:4700::1111]:443:h2:cloudflare-dns.com # cloudflare H2 DNS IPv6
+```
