@@ -81,27 +81,36 @@ impl TypedValueParser for ClientTypeParser {
       "google:tls" => Ok(ClientType::GoogleTLS),
       "cloudflare:h2" => Ok(ClientType::CloudFlareH2),
       "google:h2" => Ok(ClientType::GoogleH2),
-      _ => {
-        let mut error = clap::Error::new(clap::error::ErrorKind::InvalidValue).with_cmd(cmd);
-        error.insert(
-          ContextKind::InvalidArg,
-          ContextValue::String(arg.unwrap().to_string()),
-        );
-        error.insert(
-          ContextKind::InvalidValue,
-          ContextValue::String(value.to_string_lossy().to_string()),
-        );
-        error.insert(
-          ContextKind::ValidValue,
-          ContextValue::Strings(
-            Self::possible_vals()
-              .iter()
-              .map(|value| value.to_string())
-              .collect(),
-          ),
-        );
-        Err(error)
-      }
+      s => match ClientType::try_from(s) {
+        Ok(client) => Ok(client),
+        Err(client_err) => {
+          let mut error = clap::Error::new(clap::error::ErrorKind::InvalidValue).with_cmd(cmd);
+          error.insert(
+            ContextKind::InvalidArg,
+            ContextValue::String(arg.unwrap().to_string()),
+          );
+          error.insert(
+            ContextKind::InvalidValue,
+            ContextValue::String(value.to_string_lossy().to_string()),
+          );
+          error.insert(
+            ContextKind::ValidValue,
+            ContextValue::Strings(
+              Self::possible_vals()
+                .iter()
+                .map(|value| value.to_string())
+                .collect(),
+            ),
+          );
+          if !client_err.to_string().is_empty() {
+            error.insert(
+              ContextKind::SuggestedValue,
+              ContextValue::String(client_err.to_string()),
+            );
+          }
+          Err(error)
+        }
+      },
     }
   }
 
@@ -127,7 +136,7 @@ impl TryFrom<&str> for ClientType {
       Regex::new(r"^((?<ipv4>\d+.\d+.\d+.\d+)|\[(?<ipv6>[a-fA-F0-9:]+)\])(:(?<port>\d+)?:?((?<proto>h2|tls):(?<domain>.*))?)?$")
         .unwrap();
     let Some(caps) = regex.captures(s) else {
-      bail!("The option is not recognized");
+      bail!("");
     };
     println!("{:?}", caps);
     let ip4: Result<IpAddr> = caps
