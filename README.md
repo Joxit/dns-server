@@ -1,6 +1,9 @@
 # DNS Server
 
 [![Pulls](https://img.shields.io/docker/pulls/joxit/dns-server.svg?maxAge=86400)](https://hub.docker.com/r/joxit/dns-server)
+[![Langs](https://img.shields.io/github/languages/top/joxit/dns-server)](https://github.com/Joxit/dns-server)
+[![Project](https://img.shields.io/badge/joxit-dns_server-blue?logo=github)](https://github.com/Joxit/dns-server)
+[![website](https://img.shields.io/badge/website-dns_server-blue)](https://joxit.dev/dns-server)
 [![Sponsor](https://joxit.dev/images/sponsor.svg)](https://github.com/sponsors/Joxit)
 
 ## Overview
