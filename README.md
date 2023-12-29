@@ -90,3 +90,7 @@ You can add another DNS resolver (different than Cloudflare and Google) with the
 --dns-server [2606:4700:4700::1111]:h2:cloudflare-dns.com # cloudflare H2 DNS IPv6 with default port
 --dns-server [2606:4700:4700::1111]:443:h2:cloudflare-dns.com # cloudflare H2 DNS IPv6
 ```
+
+## Configure logging
+
+You can configure the logging level with the envirnoment variable `RUST_LOG`. The default value in the image is `RUST_LOG=warn`.
