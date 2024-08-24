@@ -1,9 +1,9 @@
-use crate::authority::forge_ip_record;
+use crate::authority::{forge_ip_record, ipv4_to_ipv6_records};
 use hickory_resolver::{config::NameServerConfigGroup, Name};
 use hickory_server::{
   authority::{Authority, LookupError, LookupOptions, MessageRequest, UpdateResult, ZoneType},
   proto::{
-    op::ResponseCode,
+    op::{Query, ResponseCode},
     rr::{LowerName, RecordType},
   },
   server::RequestInfo,
@@ -84,7 +84,31 @@ impl Authority for BlacklistAuthority {
         Err(LookupError::ResponseCode(ResponseCode::NoError))
       }
     } else {
-      self.inner.search(request_info, lookup_options).await
+      match self
+        .inner
+        .search(request_info.clone(), lookup_options)
+        .await
+      {
+        Ok(res) => Ok(res),
+        Err(err) => {
+          if request_info.query.query_type() == RecordType::AAAA {
+            let mut query = Query::query(request_info.query.name().into(), RecordType::A);
+            query.set_query_class(request_info.query.query_class());
+            let lower_query = query.into();
+            let a_request = RequestInfo::new(
+              request_info.src,
+              request_info.protocol,
+              request_info.header,
+              &lower_query,
+            );
+            if let Ok(a_res) = self.inner.search(a_request, lookup_options).await {
+              return Ok(ipv4_to_ipv6_records(a_res.0));
+            }
+          }
+
+          Err(err)
+        }
+      }
     }
   }
 
