@@ -23,7 +23,7 @@ pub fn forge_ip_record(ip: Ipv4Addr, request_info: RequestInfo<'_>) -> ForwardLo
   return ForwardLookup(lookup);
 }
 
-fn ipv4_to_ipv6(ip: &Ipv4Addr) -> Ipv6Addr {
+fn ipv4_to_prefixed_ipv6(ip: &Ipv4Addr) -> Ipv6Addr {
   let [a, b, c, d] = ip.octets();
   let g = ((a as u16) << 8) + (b as u16);
   let h = ((c as u16) << 8) + (d as u16);
@@ -31,22 +31,24 @@ fn ipv4_to_ipv6(ip: &Ipv4Addr) -> Ipv6Addr {
 }
 
 pub fn ipv4_to_ipv6_records(ipv4_records: ResolverLookup) -> ForwardLookup {
-  let records: Vec<Record> = ipv4_records
-    .records()
-    .iter()
-    .map(|r| {
-      let mut record = Record::with(r.name().clone(), r.record_type(), r.ttl());
-      if let Some(data) = r.data() {
-        if let Ok(a) = data.clone().into_a() {
-          record.set_data(Some(RData::AAAA(AAAA(ipv4_to_ipv6(&a)))));
-          record.set_record_type(RecordType::AAAA);
-        } else {
-          record.set_data(Some(data.clone()));
-        }
+  let mut records: Vec<Record> = vec![];
+  ipv4_records.records().iter().for_each(|r| {
+    let mut record = Record::with(r.name().clone(), r.record_type(), r.ttl());
+    if let Some(data) = r.data() {
+      if let Ok(a) = data.clone().into_a() {
+        record.set_data(Some(RData::AAAA(AAAA(a.to_ipv6_mapped()))));
+        record.set_record_type(RecordType::AAAA);
+
+        let mut prefixed = record.clone();
+        prefixed.set_data(Some(RData::AAAA(AAAA(ipv4_to_prefixed_ipv6(&a)))));
+        prefixed.set_record_type(RecordType::AAAA);
+        records.push(prefixed);
+      } else {
+        record.set_data(Some(data.clone()));
       }
-      record
-    })
-    .collect();
+    }
+    records.push(record);
+  });
 
   let lookup = ResolverLookup::new_with_max_ttl(
     ipv4_records.query().clone(),
