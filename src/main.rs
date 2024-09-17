@@ -25,6 +25,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub mod authority;
 pub mod client;
+pub mod ip;
 
 /// Create a DNS server you can configure to block some domain and zones. You can use UDP or DNS over TLS/TCP (DoT) or DNS over HTTPS/H2 (DoH) as listeners (frontend) and resolver (backend).
 #[derive(Parser, Debug)]
