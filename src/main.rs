@@ -8,6 +8,7 @@ use hickory_server::{
   resolver::Name,
   ServerFuture,
 };
+use ip::{IpRange, IpRangeVec};
 use std::collections::HashSet;
 use std::io::Read;
 use std::net::Ipv4Addr;
@@ -76,6 +77,9 @@ pub struct DNSServer {
   /// Path of the private key for the https/h2 server.
   #[arg(long = "tls-private-key")]
   tls_private_key: Option<PathBuf>,
+  /// IP using Local-Use IPv4/IPv6 Translation Prefix (rfc8215).
+  #[arg(long = "rfc8215-ips")]
+  rfc8215_ips: Option<PathBuf>,
 }
 
 fn main() {
@@ -166,10 +170,30 @@ impl DNSServer {
       self.get_blacklist(&self.blacklist),
       self.dns_server.clone().into(),
       self.default_ip.clone(),
+      self.get_rfc8215_ips(),
     );
     catalog.upsert(LowerName::new(&name), Box::new(Arc::new(authority)));
 
     catalog
+  }
+
+  fn get_rfc8215_ips(&self) -> IpRangeVec {
+    let ip_ranges: Vec<IpRange> = if let Some(path) = &self.rfc8215_ips {
+      let mut file = std::fs::File::open(path).unwrap();
+      let mut buffer = String::new();
+      file.read_to_string(&mut buffer).unwrap();
+
+      buffer
+        .split("\n")
+        .map(|ip_range| ip_range.trim())
+        .filter(|ip_range| !ip_range.is_empty())
+        .map(|ip_range| IpRange::try_from(ip_range).unwrap())
+        .collect()
+    } else {
+      vec![]
+    };
+
+    IpRangeVec::new(ip_ranges)
   }
 
   fn get_blacklist(&self, list: &Option<PathBuf>) -> HashSet<LowerName> {

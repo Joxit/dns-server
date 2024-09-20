@@ -1,4 +1,7 @@
-use crate::authority::{forge_ip_record, ipv4_to_ipv6_records};
+use crate::{
+  authority::{forge_ip_record, ipv4_to_prefixed_ipv6_records},
+  ip::IpRangeVec,
+};
 use hickory_resolver::{config::NameServerConfigGroup, Name};
 use hickory_server::{
   authority::{Authority, LookupError, LookupOptions, MessageRequest, UpdateResult, ZoneType},
@@ -17,6 +20,7 @@ pub struct BlacklistAuthority {
   blacklisted: HashSet<LowerName>,
   inner: ForwardAuthority,
   default_ip: Option<Ipv4Addr>,
+  rfc8215_ips: IpRangeVec,
 }
 
 impl BlacklistAuthority {
@@ -25,6 +29,7 @@ impl BlacklistAuthority {
     blacklisted: HashSet<LowerName>,
     name_servers: NameServerConfigGroup,
     default_ip: Option<Ipv4Addr>,
+    rfc8215_ips: IpRangeVec,
   ) -> Self {
     info!("Domains {:?} will be ingnored", blacklisted);
     let authority_config = ForwardConfig {
@@ -38,6 +43,7 @@ impl BlacklistAuthority {
       blacklisted,
       inner: forward_authority,
       default_ip,
+      rfc8215_ips,
     }
   }
 }
@@ -91,7 +97,9 @@ impl Authority for BlacklistAuthority {
       {
         Ok(res) => Ok(res),
         Err(err) => {
-          if request_info.query.query_type() == RecordType::AAAA {
+          if request_info.query.query_type() == RecordType::AAAA
+            && self.rfc8215_ips.contains_sock_addr(request_info.src)
+          {
             let mut query = Query::query(request_info.query.name().into(), RecordType::A);
             query.set_query_class(request_info.query.query_class());
             let lower_query = query.into();
@@ -102,7 +110,7 @@ impl Authority for BlacklistAuthority {
               &lower_query,
             );
             if let Ok(a_res) = self.inner.search(a_request, lookup_options).await {
-              return Ok(ipv4_to_ipv6_records(a_res.0));
+              return Ok(ipv4_to_prefixed_ipv6_records(a_res.0));
             }
           }
 

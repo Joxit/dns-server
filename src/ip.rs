@@ -1,7 +1,9 @@
 use anyhow::Result;
-// use rustls::pki_types::Ipv4Addr;
 use ipnet::IpNet;
-use std::{cmp::Ordering, net::IpAddr};
+use std::{
+  cmp::Ordering,
+  net::{IpAddr, SocketAddr},
+};
 
 #[derive(PartialEq, PartialOrd, Eq, Ord, Clone, Copy, Debug)]
 pub struct IpRange {
@@ -32,13 +34,22 @@ impl TryFrom<&str> for IpRange {
 }
 
 impl IpRangeVec {
-  fn new(ranges: Vec<IpRange>) -> Self {
+  pub fn new(ranges: Vec<IpRange>) -> Self {
     let mut ranges = ranges.clone();
     ranges.sort();
     Self { ranges }
   }
 
-  fn contains(&self, ip: IpAddr) -> bool {
+  pub fn contains_sock_addr(&self, socket: SocketAddr) -> bool {
+    let ip = match socket {
+      SocketAddr::V4(sock) => IpAddr::V4(*sock.ip()),
+      SocketAddr::V6(sock) => IpAddr::V6(*sock.ip()),
+    };
+
+    self.contains(ip)
+  }
+
+  pub fn contains(&self, ip: IpAddr) -> bool {
     let bits = match ip {
       IpAddr::V4(ip) => ip.to_bits() as u128,
       IpAddr::V6(ip) => ip.to_bits(),
