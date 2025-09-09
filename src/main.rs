@@ -6,6 +6,7 @@ use hickory_server::{
   ServerFuture,
 };
 use ip::{IpRange, IpRangeVec};
+use ipnet::IpNet;
 use rustls::{
   pki_types::{CertificateDer, PrivateKeyDer},
   server::ResolvesServerCert,
@@ -86,6 +87,12 @@ pub struct DNSServer {
   /// IP using Local-Use IPv4/IPv6 Translation Prefix (rfc8215).
   #[arg(long = "rfc8215-ips")]
   rfc8215_ips: Option<PathBuf>,
+  /// Networks denied to access the server
+  #[arg(long = "deny-networks")]
+  deny_networks: Option<PathBuf>,
+  /// Networks allowed to access the server
+  #[arg(long = "allow-networks")]
+  allow_networks: Option<PathBuf>,
 }
 
 fn main() {
@@ -101,7 +108,11 @@ fn main() {
 
   let catalog = runtime.block_on(args.generate_catalog());
 
-  let mut server = ServerFuture::new(catalog);
+  let mut server = ServerFuture::with_access(
+    catalog,
+    &args.get_networks(&args.deny_networks),
+    &args.get_networks(&args.allow_networks),
+  );
 
   info!("Will listen UDP resquests on {}:{}", args.listen, args.port);
   let udp_socket = runtime
@@ -204,6 +215,23 @@ impl DNSServer {
     };
 
     IpRangeVec::new(ip_ranges)
+  }
+
+  fn get_networks(&self, path: &Option<PathBuf>) -> Vec<IpNet> {
+    if let Some(path) = path {
+      let mut file = std::fs::File::open(path).unwrap();
+      let mut buffer = String::new();
+      file.read_to_string(&mut buffer).unwrap();
+
+      buffer
+        .split("\n")
+        .map(|network| network.trim())
+        .filter(|network| !network.is_empty())
+        .map(|network| IpNet::from_str(network).unwrap())
+        .collect()
+    } else {
+      vec![]
+    }
   }
 
   fn get_blacklist(&self, list: &Option<PathBuf>) -> HashSet<LowerName> {
