@@ -1,7 +1,7 @@
-use hickory_client::rr::rdata::AAAA;
+use hickory_client::proto::rr::rdata::AAAA;
+use hickory_resolver::lookup::Lookup as ResolverLookup;
 use hickory_server::{
-  proto::rr::{rdata::A, RData, Record, RecordType},
-  resolver::lookup::Lookup as ResolverLookup,
+  proto::rr::{rdata::A, RData, Record},
   server::RequestInfo,
   store::forwarder::ForwardLookup,
 };
@@ -16,8 +16,7 @@ pub(crate) use crate::authority::blacklist::BlacklistAuthority;
 pub(crate) use crate::authority::none::NoneAuthority;
 
 pub fn forge_ip_record(ip: Ipv4Addr, request_info: RequestInfo<'_>) -> ForwardLookup {
-  let mut record = Record::with(request_info.query.name().into(), RecordType::A, u32::MAX);
-  record.set_data(Some(RData::A(A(ip))));
+  let record = Record::from_rdata(request_info.query.name().into(), u32::MAX, RData::A(A(ip)));
   let lookup =
     ResolverLookup::new_with_max_ttl(request_info.query.original().clone(), Arc::new([record]));
   return ForwardLookup(lookup);
@@ -35,16 +34,15 @@ pub fn ipv4_to_prefixed_ipv6_records(ipv4_records: ResolverLookup) -> ForwardLoo
     .records()
     .iter()
     .map(|r| {
-      let mut record = Record::with(r.name().clone(), r.record_type(), r.ttl());
-      if let Some(data) = r.data() {
-        if let Ok(a) = data.clone().into_a() {
-          record.set_data(Some(RData::AAAA(AAAA(ipv4_to_prefixed_ipv6(&a)))));
-          record.set_record_type(RecordType::AAAA);
-        } else {
-          record.set_data(Some(data.clone()));
-        }
+      if let Ok(a) = r.data().clone().into_a() {
+        Record::from_rdata(
+          r.name().clone(),
+          r.ttl(),
+          RData::AAAA(AAAA(ipv4_to_prefixed_ipv6(&a))),
+        )
+      } else {
+        Record::from_rdata(r.name().clone(), r.ttl(), r.data().clone())
       }
-      record
     })
     .collect();
 

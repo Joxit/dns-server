@@ -1,6 +1,9 @@
 use crate::authority::forge_ip_record;
 use hickory_server::{
-  authority::{Authority, LookupError, LookupOptions, MessageRequest, UpdateResult, ZoneType},
+  authority::{
+    Authority, LookupControlFlow, LookupError, LookupOptions, MessageRequest, UpdateResult,
+    ZoneType,
+  },
   proto::{
     op::ResponseCode,
     rr::{LowerName, RecordType},
@@ -18,7 +21,7 @@ pub struct NoneAuthority {
 
 impl NoneAuthority {
   pub fn new(name: LowerName, default_ip: Option<Ipv4Addr>) -> Self {
-    info!("Domain zone {} will be ingnored", name);
+    info!("Domain zone {} will be ignored", name);
     Self {
       origin: name,
       default_ip,
@@ -49,22 +52,22 @@ impl Authority for NoneAuthority {
   async fn lookup(
     &self,
     _name: &LowerName,
-    _query_type: RecordType,
+    _rtype: RecordType,
     _lookup_options: LookupOptions,
-  ) -> Result<Self::Lookup, LookupError> {
-    Err(LookupError::ResponseCode(ResponseCode::NoError))
+  ) -> LookupControlFlow<Self::Lookup> {
+    LookupControlFlow::Break(Err(LookupError::ResponseCode(ResponseCode::NoError)))
   }
 
   async fn search(
     &self,
     request_info: RequestInfo<'_>,
     _lookup_options: LookupOptions,
-  ) -> Result<Self::Lookup, LookupError> {
+  ) -> LookupControlFlow<Self::Lookup> {
     warn!("Domain name ignored {}", request_info.query.name());
     if let Some(ip) = self.default_ip {
-      Ok(forge_ip_record(ip, request_info))
+      LookupControlFlow::Break(Ok(forge_ip_record(ip, request_info)))
     } else {
-      Err(LookupError::ResponseCode(ResponseCode::NoError))
+      LookupControlFlow::Break(Err(LookupError::ResponseCode(ResponseCode::NoError)))
     }
   }
 
@@ -72,7 +75,7 @@ impl Authority for NoneAuthority {
     &self,
     _name: &LowerName,
     _lookup_options: LookupOptions,
-  ) -> Result<Self::Lookup, LookupError> {
-    Err(LookupError::ResponseCode(ResponseCode::NoError))
+  ) -> LookupControlFlow<Self::Lookup> {
+    LookupControlFlow::Break(Err(LookupError::ResponseCode(ResponseCode::NoError)))
   }
 }

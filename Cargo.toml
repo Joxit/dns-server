@@ -11,18 +11,18 @@ name = "dns-server"
 path = "src/main.rs"
 
 [dependencies]
-async-trait = "0.1.74"
-clap = { version = "^4.4", features = ["derive", "env"] }
-clap_complete = { version = "^4.4" }
-hickory-server = { version = "^0.24", features = ["dns-over-https-rustls"] }
-hickory-resolver = { version = "^0.24", features = ["dns-over-https-rustls", "native-certs"] }
-hickory-client = { version = "^0.24", features = ["dns-over-https-rustls"] }
-tokio = "^1.33"
-tracing = "0.1.40"
-tracing-subscriber = { version = "0.3.17", features = ["env-filter"] }
+async-trait = "0.1.89"
+clap = { version = "^4.5", features = ["derive", "env"] }
+clap_complete = { version = "^4.5" }
+hickory-server = { version = "^0.25", features = ["https-ring", "resolver"] }
+hickory-resolver = { version = "^0.25", features = ["https-ring"] }
+hickory-client = { version = "^0.25", features = ["https-ring"] }
+tokio = "^1.47"
+tracing = "0.1.41"
+tracing-subscriber = { version = "^0.3", features = ["env-filter"] }
 rustls = "^0.23"
-rustls-native-certs = "^0.7"
-tokio-graceful = "^0.1"
-regex = "1.10.2"
-anyhow = "1.0.76"
-ipnet = "2.10.0"
+rustls-native-certs = "^0.8"
+tokio-graceful = "^0.2"
+regex = "^1.11"
+anyhow = "^1.0"
+ipnet = "^2.11"

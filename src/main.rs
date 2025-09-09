@@ -2,14 +2,17 @@ use crate::authority::{BlacklistAuthority, NoneAuthority};
 use crate::client::*;
 use clap::{builder::ArgPredicate, Parser};
 use hickory_server::{
-  authority::Catalog,
-  proto::rr::LowerName,
-  proto::rustls::tls_server::{read_cert, read_key},
-  resolver::Name,
+  authority::Catalog, proto::rr::LowerName, proto::rustls::default_provider, resolver::Name,
   ServerFuture,
 };
 use ip::{IpRange, IpRangeVec};
+use rustls::{
+  pki_types::{CertificateDer, PrivateKeyDer},
+  server::ResolvesServerCert,
+  sign::{CertifiedKey, SingleCertAndKey},
+};
 use std::collections::HashSet;
+use std::convert::TryFrom;
 use std::io::Read;
 use std::net::Ipv4Addr;
 use std::path::PathBuf;
@@ -62,6 +65,9 @@ pub struct DNSServer {
   /// Listen port of the https/h2 server.
   #[arg(long = "h2-port", default_value("443"))]
   h2_port: u16,
+  /// Listen port of the https/h2 server.
+  #[arg(long = "h2-path", default_value("/"))]
+  h2_path: String,
   /// Activate DNS over TLS (TCP) server beside classic DNS server over UDP.
   #[arg(
     long = "tls",
@@ -120,14 +126,14 @@ fn main() {
       .unwrap();
 
     let _guard = runtime.enter();
-    let certs = read_cert(args.tls_certificate.clone().unwrap().as_path()).unwrap();
-    let private_key = read_key(args.tls_private_key.clone().unwrap().as_path()).unwrap();
+
     server
       .register_https_listener(
         https_listener,
         Duration::from_secs(2),
-        (certs, private_key),
+        args.get_certificates(),
         None,
+        args.h2_path.clone(),
       )
       .expect("could not register HTTPS listener");
   }
@@ -142,10 +148,14 @@ fn main() {
       .unwrap();
 
     let _guard = runtime.enter();
-    let certs = read_cert(args.tls_certificate.clone().unwrap().as_path()).unwrap();
-    let private_key = read_key(args.tls_private_key.clone().unwrap().as_path()).unwrap();
+    // let certs = read_cert(args.tls_certificate.clone().unwrap().as_path()).unwrap();
+    // let private_key = read_key(args.tls_private_key.clone().unwrap().as_path()).unwrap();
     server
-      .register_tls_listener(tls_listener, Duration::from_secs(2), (certs, private_key))
+      .register_tls_listener(
+        tls_listener,
+        Duration::from_secs(2),
+        args.get_certificates(),
+      )
       .expect("could not register TLS listener");
   }
 
@@ -162,7 +172,7 @@ impl DNSServer {
 
     for domain in self.get_blacklist(&self.zone_blacklist).iter() {
       let authority = NoneAuthority::new(domain.clone(), self.default_ip.clone());
-      catalog.upsert(domain.clone(), Box::new(Arc::new(authority)));
+      catalog.upsert(domain.clone(), vec![Arc::new(authority)]);
     }
 
     let authority = BlacklistAuthority::new(
@@ -172,7 +182,7 @@ impl DNSServer {
       self.default_ip.clone(),
       self.get_rfc8215_ips(),
     );
-    catalog.upsert(LowerName::new(&name), Box::new(Arc::new(authority)));
+    catalog.upsert(LowerName::new(&name), vec![Arc::new(authority)]);
 
     catalog
   }
@@ -217,6 +227,29 @@ impl DNSServer {
       }
       None => HashSet::new(),
     }
+  }
+
+  fn get_slice(path: &Option<PathBuf>) -> Vec<u8> {
+    let mut data: Vec<u8> = vec![];
+    std::fs::File::open(path.clone().unwrap())
+      .unwrap()
+      .read_to_end(&mut data)
+      .unwrap();
+
+    data
+  }
+
+  fn get_certificates(&self) -> Arc<dyn ResolvesServerCert> {
+    let certs_data = DNSServer::get_slice(&self.tls_certificate);
+    let certs = CertificateDer::from_slice(&certs_data).into_owned();
+    let private_key_data = DNSServer::get_slice(&self.tls_private_key);
+    let private_key = PrivateKeyDer::try_from(private_key_data.as_slice())
+      .unwrap()
+      .clone_key();
+    let certified_key =
+      CertifiedKey::from_der(vec![certs], private_key, &default_provider()).unwrap();
+
+    Arc::new(SingleCertAndKey::from(certified_key))
   }
 }
 

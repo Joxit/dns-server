@@ -2,9 +2,16 @@ use crate::{
   authority::{forge_ip_record, ipv4_to_prefixed_ipv6_records},
   ip::IpRangeVec,
 };
-use hickory_resolver::{config::NameServerConfigGroup, Name};
+use hickory_resolver::{
+  config::NameServerConfigGroup,
+  name_server::{ConnectionProvider, GenericConnector, TokioConnectionProvider},
+  Name,
+};
 use hickory_server::{
-  authority::{Authority, LookupError, LookupOptions, MessageRequest, UpdateResult, ZoneType},
+  authority::{
+    Authority, LookupControlFlow, LookupError, LookupOptions, MessageRequest, UpdateResult,
+    ZoneType,
+  },
   proto::{
     op::{Query, ResponseCode},
     rr::{LowerName, RecordType},
@@ -16,9 +23,9 @@ use std::collections::HashSet;
 use std::net::Ipv4Addr;
 use tracing::{info, warn};
 
-pub struct BlacklistAuthority {
+pub struct BlacklistAuthority<P: ConnectionProvider = TokioConnectionProvider> {
   blacklisted: HashSet<LowerName>,
-  inner: ForwardAuthority,
+  inner: ForwardAuthority<P>,
   default_ip: Option<Ipv4Addr>,
   rfc8215_ips: IpRangeVec,
 }
@@ -36,8 +43,11 @@ impl BlacklistAuthority {
       name_servers,
       options: None,
     };
+
     let forward_authority =
-      ForwardAuthority::try_from_config(name.clone(), ZoneType::Primary, &authority_config)
+      ForwardAuthority::builder_with_config(authority_config, GenericConnector::default())
+        .with_domain(name.clone())
+        .build()
         .unwrap();
     Self {
       blacklisted,
@@ -73,7 +83,7 @@ impl Authority for BlacklistAuthority {
     name: &LowerName,
     query_type: RecordType,
     lookup_options: LookupOptions,
-  ) -> Result<Self::Lookup, LookupError> {
+  ) -> LookupControlFlow<Self::Lookup> {
     self.inner.lookup(name, query_type, lookup_options).await
   }
 
@@ -81,13 +91,13 @@ impl Authority for BlacklistAuthority {
     &self,
     request_info: RequestInfo<'_>,
     lookup_options: LookupOptions,
-  ) -> Result<Self::Lookup, LookupError> {
+  ) -> LookupControlFlow<Self::Lookup> {
     if self.blacklisted.contains(request_info.query.name()) {
       warn!("Domain name ignored {}", request_info.query.name());
       if let Some(ip) = self.default_ip {
-        Ok(forge_ip_record(ip, request_info))
+        LookupControlFlow::Break(Ok(forge_ip_record(ip, request_info)))
       } else {
-        Err(LookupError::ResponseCode(ResponseCode::NoError))
+        LookupControlFlow::Break(Err(LookupError::ResponseCode(ResponseCode::NoError)))
       }
     } else {
       match self
@@ -95,8 +105,10 @@ impl Authority for BlacklistAuthority {
         .search(request_info.clone(), lookup_options)
         .await
       {
-        Ok(res) => Ok(res),
-        Err(err) => {
+        LookupControlFlow::Continue(Ok(res)) | LookupControlFlow::Break(Ok(res)) => {
+          LookupControlFlow::Break(Ok(res))
+        }
+        LookupControlFlow::Continue(Err(err)) | LookupControlFlow::Break(Err(err)) => {
           if request_info.query.query_type() == RecordType::AAAA
             && self.rfc8215_ips.contains_sock_addr(request_info.src)
           {
@@ -109,13 +121,17 @@ impl Authority for BlacklistAuthority {
               request_info.header,
               &lower_query,
             );
-            if let Ok(a_res) = self.inner.search(a_request, lookup_options).await {
-              return Ok(ipv4_to_prefixed_ipv6_records(a_res.0));
-            }
+            match self.inner.search(a_request, lookup_options).await {
+              LookupControlFlow::Continue(Ok(a_res)) | LookupControlFlow::Break(Ok(a_res)) => {
+                return LookupControlFlow::Break(Ok(ipv4_to_prefixed_ipv6_records(a_res.0)));
+              }
+              _ => {}
+            };
           }
 
-          Err(err)
+          LookupControlFlow::Break(Err(err))
         }
+        _ => LookupControlFlow::Skip,
       }
     }
   }
@@ -124,7 +140,7 @@ impl Authority for BlacklistAuthority {
     &self,
     name: &LowerName,
     lookup_options: LookupOptions,
-  ) -> Result<Self::Lookup, LookupError> {
+  ) -> LookupControlFlow<Self::Lookup> {
     self.inner.get_nsec_records(name, lookup_options).await
   }
 }
