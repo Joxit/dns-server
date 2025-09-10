@@ -1,5 +1,6 @@
 use crate::authority::{BlacklistAuthority, NoneAuthority};
 use crate::client::*;
+use anyhow::{anyhow, bail, Context, Result};
 use clap::{builder::ArgPredicate, Parser};
 use hickory_server::{
   authority::Catalog, proto::rr::LowerName, proto::rustls::default_provider, resolver::Name,
@@ -7,6 +8,7 @@ use hickory_server::{
 };
 use ip::{IpRange, IpRangeVec};
 use ipnet::IpNet;
+use rustls::pki_types::pem::PemObject;
 use rustls::{
   pki_types::{CertificateDer, PrivateKeyDer},
   server::ResolvesServerCert,
@@ -95,7 +97,7 @@ pub struct DNSServer {
   allow_networks: Option<PathBuf>,
 }
 
-fn main() {
+fn main() -> Result<()> {
   logger();
   let args = DNSServer::parse();
 
@@ -104,7 +106,7 @@ fn main() {
     .worker_threads(args.worker)
     .thread_name("dns-server-runtime")
     .build()
-    .expect("failed to initialize Tokio Runtime");
+    .context("failed to initialize Tokio Runtime")?;
 
   let catalog = runtime.block_on(args.generate_catalog());
 
@@ -114,15 +116,10 @@ fn main() {
     &args.get_networks(&args.allow_networks),
   );
 
-  info!("Will listen UDP resquests on {}:{}", args.listen, args.port);
+  info!("Will listen UDP requests on {}:{}", args.listen, args.port);
   let udp_socket = runtime
     .block_on(UdpSocket::bind((args.listen.clone(), args.port)))
-    .unwrap_or_else(|err| {
-      panic!(
-        "could not bind to UDP socket {}:{} : {err}",
-        args.listen, args.port
-      )
-    });
+    .with_context(|| anyhow!("could not bind to UDP socket {}:{}", args.listen, args.port))?;
 
   let _guard = runtime.enter();
   server.register_socket(udp_socket);
@@ -134,7 +131,7 @@ fn main() {
     );
     let https_listener = runtime
       .block_on(TcpListener::bind((args.listen.clone(), args.h2_port)))
-      .unwrap();
+      .with_context(|| format!("could not bind HTTPS port {}:{}", args.listen, args.h2_port))?;
 
     let _guard = runtime.enter();
 
@@ -142,11 +139,11 @@ fn main() {
       .register_https_listener(
         https_listener,
         Duration::from_secs(2),
-        args.get_certificates(),
+        args.get_certificates()?,
         None,
         args.h2_path.clone(),
       )
-      .expect("could not register HTTPS listener");
+      .with_context(|| "could not register HTTPS listener")?;
   }
 
   if args.tls {
@@ -156,24 +153,22 @@ fn main() {
     );
     let tls_listener = runtime
       .block_on(TcpListener::bind((args.listen.clone(), args.tls_port)))
-      .unwrap();
+      .with_context(|| format!("could not bind TLS port {}:{}", args.listen, args.tls_port))?;
 
     let _guard = runtime.enter();
-    // let certs = read_cert(args.tls_certificate.clone().unwrap().as_path()).unwrap();
-    // let private_key = read_key(args.tls_private_key.clone().unwrap().as_path()).unwrap();
     server
       .register_tls_listener(
         tls_listener,
         Duration::from_secs(2),
-        args.get_certificates(),
+        args.get_certificates()?,
       )
-      .expect("could not register TLS listener");
+      .context("could not register TLS listener")?;
   }
 
   let shutdown = Shutdown::default();
-  runtime
-    .block_on(shutdown.shutdown_with_limit(Duration::from_secs(5)))
-    .unwrap();
+  runtime.block_on(shutdown.shutdown_with_limit(Duration::from_secs(5)))?;
+
+  Ok(())
 }
 
 impl DNSServer {
@@ -257,27 +252,33 @@ impl DNSServer {
     }
   }
 
-  fn get_slice(path: &Option<PathBuf>) -> Vec<u8> {
-    let mut data: Vec<u8> = vec![];
-    std::fs::File::open(path.clone().unwrap())
-      .unwrap()
-      .read_to_end(&mut data)
-      .unwrap();
+  fn get_certificates(&self) -> Result<Arc<dyn ResolvesServerCert>> {
+    let cert_path = if let Some(path) = &self.tls_certificate {
+      path
+    } else {
+      bail!("Missing tls certificate");
+    };
+    let key_path = if let Some(path) = &self.tls_private_key {
+      path
+    } else {
+      bail!("Missing tls private key");
+    };
 
-    data
-  }
+    let cert_chain = CertificateDer::pem_file_iter(&cert_path)?.collect::<Result<Vec<_>, _>>()?;
 
-  fn get_certificates(&self) -> Arc<dyn ResolvesServerCert> {
-    let certs_data = DNSServer::get_slice(&self.tls_certificate);
-    let certs = CertificateDer::from_slice(&certs_data).into_owned();
-    let private_key_data = DNSServer::get_slice(&self.tls_private_key);
-    let private_key = PrivateKeyDer::try_from(private_key_data.as_slice())
-      .unwrap()
-      .clone_key();
-    let certified_key =
-      CertifiedKey::from_der(vec![certs], private_key, &default_provider()).unwrap();
+    let key = if let Ok(key) = PrivateKeyDer::from_pem_file(&key_path) {
+      key
+    } else if let Ok(key) =
+      PrivateKeyDer::try_from(std::fs::read(&key_path).context("Error reading tls private key")?)
+    {
+      key
+    } else {
+      bail!("Unsupported tls private key")
+    };
 
-    Arc::new(SingleCertAndKey::from(certified_key))
+    let certified_key = CertifiedKey::from_der(cert_chain, key, &default_provider())?;
+
+    Ok(Arc::new(SingleCertAndKey::from(certified_key)))
   }
 }
 
