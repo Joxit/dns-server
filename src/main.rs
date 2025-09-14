@@ -108,12 +108,12 @@ fn main() -> Result<()> {
     .build()
     .context("failed to initialize Tokio Runtime")?;
 
-  let catalog = runtime.block_on(args.generate_catalog());
+  let catalog = runtime.block_on(args.generate_catalog())?;
 
   let mut server = ServerFuture::with_access(
     catalog,
-    &args.get_networks(&args.deny_networks),
-    &args.get_networks(&args.allow_networks),
+    &args.get_networks(&args.deny_networks)?,
+    &args.get_networks(&args.allow_networks)?,
   );
 
   info!("Will listen UDP requests on {}:{}", args.listen, args.port);
@@ -172,83 +172,88 @@ fn main() -> Result<()> {
 }
 
 impl DNSServer {
-  async fn generate_catalog(&self) -> Catalog {
+  async fn generate_catalog(&self) -> Result<Catalog> {
     let mut catalog = Catalog::new();
     let name = Name::root();
 
-    for domain in self.get_blacklist(&self.zone_blacklist).iter() {
+    for domain in self.get_blacklist(&self.zone_blacklist)?.iter() {
       let authority = NoneAuthority::new(domain.clone(), self.default_ip.clone());
       catalog.upsert(domain.clone(), vec![Arc::new(authority)]);
     }
 
     let authority = BlacklistAuthority::new(
       name.clone(),
-      self.get_blacklist(&self.blacklist),
+      self.get_blacklist(&self.blacklist)?,
       self.dns_server.clone().into(),
       self.default_ip.clone(),
-      self.get_rfc8215_ips(),
+      self.get_rfc8215_ips()?,
     );
     catalog.upsert(LowerName::new(&name), vec![Arc::new(authority)]);
 
-    catalog
+    Ok(catalog)
   }
 
-  fn get_rfc8215_ips(&self) -> IpRangeVec {
+  fn get_rfc8215_ips(&self) -> Result<IpRangeVec> {
     let ip_ranges: Vec<IpRange> = if let Some(path) = &self.rfc8215_ips {
-      let mut file = std::fs::File::open(path).unwrap();
+      let error = format!("RFC8215: Failed to process `{}` file", path.display());
+      let mut file = std::fs::File::open(path).with_context(|| error.clone())?;
       let mut buffer = String::new();
-      file.read_to_string(&mut buffer).unwrap();
+      file
+        .read_to_string(&mut buffer)
+        .with_context(|| error.clone())?;
 
       buffer
         .split("\n")
         .map(|ip_range| ip_range.trim())
         .filter(|ip_range| !ip_range.is_empty())
-        .map(|ip_range| IpRange::try_from(ip_range).unwrap())
-        .collect()
+        .map(|ip_range| IpRange::try_from(ip_range).with_context(|| error.clone()))
+        .collect::<Result<Vec<IpRange>>>()?
     } else {
       vec![]
     };
 
-    IpRangeVec::new(ip_ranges)
+    Ok(IpRangeVec::new(ip_ranges))
   }
 
-  fn get_networks(&self, path: &Option<PathBuf>) -> Vec<IpNet> {
+  fn get_networks(&self, path: &Option<PathBuf>) -> Result<Vec<IpNet>> {
     if let Some(path) = path {
-      let mut file = std::fs::File::open(path).unwrap();
+      let error = format!("Networks: Failed to process `{}` file", path.display());
+      let mut file = std::fs::File::open(path).with_context(|| error.clone())?;
       let mut buffer = String::new();
-      file.read_to_string(&mut buffer).unwrap();
+      file
+        .read_to_string(&mut buffer)
+        .with_context(|| error.clone())?;
 
-      buffer
+      let networks = buffer
         .split("\n")
         .map(|network| network.trim())
         .filter(|network| !network.is_empty())
-        .map(|network| IpNet::from_str(network).unwrap())
-        .collect()
+        .map(|network| IpNet::from_str(network).with_context(|| error.clone()))
+        .collect::<Result<Vec<IpNet>>>()?;
+      Ok(networks)
     } else {
-      vec![]
+      Ok(vec![])
     }
   }
 
-  fn get_blacklist(&self, list: &Option<PathBuf>) -> HashSet<LowerName> {
+  fn get_blacklist(&self, list: &Option<PathBuf>) -> Result<HashSet<LowerName>> {
     match &list {
       Some(path) => {
-        let mut file = std::fs::File::open(path).unwrap();
+        let error = format!("Blacklist: Failed to process `{}` file", path.display());
+        let mut file = std::fs::File::open(path).with_context(|| error.clone())?;
         let mut buffer = String::new();
-        file.read_to_string(&mut buffer).unwrap();
-        let mut set: HashSet<LowerName> = HashSet::new();
+        file
+          .read_to_string(&mut buffer)
+          .with_context(|| error.clone())?;
 
         buffer
           .split("\n")
           .map(|domain| domain.trim().trim_end_matches("."))
           .filter(|domain| !domain.is_empty())
-          .for_each(|domain| {
-            let lower_name = LowerName::from_str(&format!("{}.", domain)).unwrap();
-            set.insert(lower_name);
-          });
-
-        set
+          .map(|domain| LowerName::from_str(&format!("{}.", domain)).with_context(|| error.clone()))
+          .collect::<Result<HashSet<LowerName>>>()
       }
-      None => HashSet::new(),
+      None => Ok(HashSet::new()),
     }
   }
 
