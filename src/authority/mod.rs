@@ -1,6 +1,7 @@
 use hickory_client::proto::rr::rdata::AAAA;
 use hickory_resolver::lookup::Lookup as ResolverLookup;
 use hickory_server::{
+  authority::LookupControlFlow,
   proto::rr::{rdata::A, RData, Record},
   server::RequestInfo,
   store::forwarder::ForwardLookup,
@@ -9,17 +10,25 @@ use std::{
   net::{Ipv4Addr, Ipv6Addr},
   sync::Arc,
 };
-mod blacklist;
-mod none;
+mod default;
+mod domain_blacklist;
+mod zone_blacklist;
 
-pub(crate) use crate::authority::blacklist::BlacklistAuthority;
-pub(crate) use crate::authority::none::NoneAuthority;
+pub(crate) use crate::authority::default::DefaultAuthority;
+pub(crate) use crate::authority::domain_blacklist::DomainBlacklistAuthority;
+pub(crate) use crate::authority::zone_blacklist::ZoneBlacklistAuthority;
 
-pub fn forge_ip_record(ip: Ipv4Addr, request_info: RequestInfo<'_>) -> ForwardLookup {
-  let record = Record::from_rdata(request_info.query.name().into(), u32::MAX, RData::A(A(ip)));
-  let lookup =
-    ResolverLookup::new_with_max_ttl(request_info.query.original().clone(), Arc::new([record]));
-  return ForwardLookup(lookup);
+pub fn forge_or_error(
+  ip: Option<Ipv4Addr>,
+  request_info: RequestInfo<'_>,
+) -> LookupControlFlow<ForwardLookup> {
+  let lookup = if let Some(ip) = ip {
+    let record = Record::from_rdata(request_info.query.name().into(), u32::MAX, RData::A(A(ip)));
+    ResolverLookup::new_with_max_ttl(request_info.query.original().clone(), Arc::new([record]))
+  } else {
+    ResolverLookup::new_with_max_ttl(request_info.query.original().clone(), Arc::new([]))
+  };
+  LookupControlFlow::Break(Ok(ForwardLookup(lookup)))
 }
 
 fn ipv4_to_prefixed_ipv6(ip: &Ipv4Addr) -> Ipv6Addr {

@@ -1,9 +1,12 @@
-use crate::authority::{BlacklistAuthority, NoneAuthority};
+use crate::authority::{DefaultAuthority, DomainBlacklistAuthority, ZoneBlacklistAuthority};
 use crate::client::*;
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{builder::ArgPredicate, Parser};
 use hickory_server::{
-  authority::Catalog, proto::rr::LowerName, proto::rustls::default_provider, resolver::Name,
+  authority::{AuthorityObject, Catalog},
+  proto::rr::LowerName,
+  proto::rustls::default_provider,
+  resolver::Name,
   ServerFuture,
 };
 use ip::{IpRange, IpRangeVec};
@@ -177,18 +180,21 @@ impl DNSServer {
     let name = Name::root();
 
     for domain in self.get_blacklist(&self.zone_blacklist)?.iter() {
-      let authority = NoneAuthority::new(domain.clone(), self.default_ip.clone());
+      let authority = ZoneBlacklistAuthority::new(domain.clone(), self.default_ip.clone());
       catalog.upsert(domain.clone(), vec![Arc::new(authority)]);
     }
 
-    let authority = BlacklistAuthority::new(
-      name.clone(),
-      self.get_blacklist(&self.blacklist)?,
-      self.dns_server.clone().into(),
-      self.default_ip.clone(),
-      self.get_rfc8215_ips()?,
-    );
-    catalog.upsert(LowerName::new(&name), vec![Arc::new(authority)]);
+    let mut root_authorities: Vec<Arc<dyn AuthorityObject>> = vec![];
+    let domains_blacklisted = self.get_blacklist(&self.blacklist)?;
+    if !domains_blacklisted.is_empty() {
+      print!("{:?}", domains_blacklisted);
+      let authority = DomainBlacklistAuthority::new(domains_blacklisted, self.default_ip.clone());
+      root_authorities.push(Arc::new(authority));
+    }
+
+    let authority = DefaultAuthority::new(self.dns_server.clone().into(), self.get_rfc8215_ips()?);
+    root_authorities.push(Arc::new(authority));
+    catalog.upsert(LowerName::new(&name), root_authorities);
 
     Ok(catalog)
   }

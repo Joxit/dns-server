@@ -1,4 +1,4 @@
-use crate::authority::forge_ip_record;
+use crate::authority::forge_or_error;
 use hickory_server::{
   authority::{
     Authority, LookupControlFlow, LookupError, LookupOptions, MessageRequest, UpdateResult,
@@ -14,12 +14,12 @@ use hickory_server::{
 use std::net::Ipv4Addr;
 use tracing::{info, warn};
 
-pub struct NoneAuthority {
+pub struct ZoneBlacklistAuthority {
   origin: LowerName,
   default_ip: Option<Ipv4Addr>,
 }
 
-impl NoneAuthority {
+impl ZoneBlacklistAuthority {
   pub fn new(name: LowerName, default_ip: Option<Ipv4Addr>) -> Self {
     info!("Domain zone {} will be ignored", name);
     Self {
@@ -30,7 +30,7 @@ impl NoneAuthority {
 }
 
 #[async_trait::async_trait]
-impl Authority for NoneAuthority {
+impl Authority for ZoneBlacklistAuthority {
   type Lookup = ForwardLookup;
 
   fn zone_type(&self) -> ZoneType {
@@ -64,11 +64,7 @@ impl Authority for NoneAuthority {
     _lookup_options: LookupOptions,
   ) -> LookupControlFlow<Self::Lookup> {
     warn!("Domain name ignored {}", request_info.query.name());
-    if let Some(ip) = self.default_ip {
-      LookupControlFlow::Break(Ok(forge_ip_record(ip, request_info)))
-    } else {
-      LookupControlFlow::Break(Err(LookupError::ResponseCode(ResponseCode::NoError)))
-    }
+    forge_or_error(self.default_ip, request_info)
   }
 
   async fn get_nsec_records(
