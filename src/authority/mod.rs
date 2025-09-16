@@ -1,4 +1,4 @@
-use hickory_client::proto::rr::rdata::AAAA;
+use hickory_client::proto::{op::Query, rr::rdata::AAAA};
 use hickory_resolver::lookup::Lookup as ResolverLookup;
 use hickory_server::{
   authority::LookupControlFlow,
@@ -29,6 +29,11 @@ pub fn forge_or_error(
     ResolverLookup::new_with_max_ttl(request_info.query.original().clone(), Arc::new([]))
   };
   LookupControlFlow::Break(Ok(ForwardLookup(lookup)))
+}
+
+pub fn empty_lookup() -> ForwardLookup {
+  let query = Query::default();
+  ForwardLookup(ResolverLookup::new_with_max_ttl(query, Arc::new([])))
 }
 
 fn ipv4_to_prefixed_ipv6(ip: &Ipv4Addr) -> Ipv6Addr {

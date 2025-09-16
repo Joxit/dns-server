@@ -6,7 +6,7 @@ use hickory_resolver::{
 };
 use hickory_server::{
   authority::{
-    Authority, LookupControlFlow, LookupOptions, MessageRequest, UpdateResult, ZoneType,
+    Authority, LookupControlFlow, LookupOptions, MessageRequest, UpdateResult, ZoneType, LookupObject,
   },
   proto::{
     op::Query,
@@ -115,5 +115,15 @@ impl Authority for DefaultAuthority {
     lookup_options: LookupOptions,
   ) -> LookupControlFlow<Self::Lookup> {
     self.inner.get_nsec_records(name, lookup_options).await
+  }
+
+  async fn consult(
+    &self,
+    name: &LowerName,
+    rtype: RecordType,
+    lookup_options: LookupOptions,
+    _last_result: LookupControlFlow<Box<dyn LookupObject>>,
+  ) -> LookupControlFlow<Box<dyn LookupObject>> {
+    self.lookup(name, rtype, lookup_options).await.map_dyn()
   }
 }

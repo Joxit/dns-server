@@ -1,8 +1,8 @@
-use crate::authority::forge_or_error;
+use crate::authority::{forge_or_error, empty_lookup};
 use hickory_resolver::Name;
 use hickory_server::{
   authority::{
-    Authority, LookupControlFlow, LookupError, LookupOptions, MessageRequest, UpdateResult,
+    Authority, LookupControlFlow, LookupOptions, MessageRequest, UpdateResult,
     ZoneType,
   },
   proto::{
@@ -60,9 +60,10 @@ impl Authority for DomainBlacklistAuthority {
     _lookup_options: LookupOptions,
   ) -> LookupControlFlow<Self::Lookup> {
     if self.blacklisted.contains(name) {
-      LookupControlFlow::Break(Err(LookupError::ResponseCode(ResponseCode::NoError)))
+      warn!("Domain name ignored {}", name);
+      LookupControlFlow::Break(Ok(empty_lookup()))
     } else {
-      LookupControlFlow::Continue(Err(LookupError::ResponseCode(ResponseCode::NoError)))
+      LookupControlFlow::Continue(Ok(empty_lookup()))
     }
   }
 
@@ -75,7 +76,7 @@ impl Authority for DomainBlacklistAuthority {
       warn!("Domain name ignored {}", request_info.query.name());
       forge_or_error(self.default_ip, request_info)
     } else {
-      LookupControlFlow::Continue(Err(LookupError::ResponseCode(ResponseCode::NoError)))
+      LookupControlFlow::Continue(Ok(empty_lookup()))
     }
   }
 
@@ -86,9 +87,9 @@ impl Authority for DomainBlacklistAuthority {
   ) -> LookupControlFlow<Self::Lookup> {
     if self.blacklisted.contains(name) {
       warn!("Domain name ignored {}", name);
-      LookupControlFlow::Break(Err(LookupError::ResponseCode(ResponseCode::NoError)))
+      LookupControlFlow::Break(Ok(empty_lookup()))
     } else {
-      LookupControlFlow::Continue(Err(LookupError::ResponseCode(ResponseCode::NoError)))
+      LookupControlFlow::Continue(Ok(empty_lookup()))
     }
   }
 }
