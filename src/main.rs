@@ -1,4 +1,6 @@
-use crate::authority::{DefaultAuthority, DomainBlacklistAuthority, ZoneBlacklistAuthority};
+use crate::authority::{
+  DefaultAuthority, DomainBlacklistAuthority, LocalDNSAuthority, ZoneBlacklistAuthority,
+};
 use crate::client::*;
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{builder::ArgPredicate, Parser};
@@ -20,7 +22,7 @@ use rustls::{
 use std::collections::HashSet;
 use std::convert::TryFrom;
 use std::io::Read;
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use std::path::PathBuf;
 use std::str::FromStr;
 use std::sync::Arc;
@@ -55,7 +57,7 @@ pub struct DNSServer {
   blacklist: Option<PathBuf>,
   /// Default IP address to return when the domain is blocked instead of an empty NoError response.
   #[arg(long = "default-ip")]
-  default_ip: Option<Ipv4Addr>,
+  default_ip: Option<IpAddr>,
   /// File containing a list of zone of domains to block, this will block the domain and all subdomains.
   #[arg(long = "zone-blacklist")]
   zone_blacklist: Option<PathBuf>,
@@ -98,6 +100,9 @@ pub struct DNSServer {
   /// Networks allowed to access the server
   #[arg(long = "allow-networks")]
   allow_networks: Option<PathBuf>,
+  /// Local DNS file in /etc/hosts style
+  #[arg(long = "local-dns-file")]
+  local_dns_file: Option<PathBuf>,
 }
 
 fn main() -> Result<()> {
@@ -178,6 +183,7 @@ impl DNSServer {
   async fn generate_catalog(&self) -> Result<Catalog> {
     let mut catalog = Catalog::new();
     let name = Name::root();
+    let rfc8215_ips = self.get_rfc8215_ips()?;
 
     for domain in self.get_blacklist(&self.zone_blacklist)?.iter() {
       let authority = ZoneBlacklistAuthority::new(domain.clone(), self.default_ip.clone());
@@ -192,7 +198,12 @@ impl DNSServer {
       root_authorities.push(Arc::new(authority));
     }
 
-    let authority = DefaultAuthority::new(self.dns_server.clone().into(), self.get_rfc8215_ips()?);
+    if let Some(local_dns_file) = &self.local_dns_file {
+      let local = LocalDNSAuthority::new(local_dns_file.clone(), rfc8215_ips.clone());
+      root_authorities.push(Arc::new(local));
+    }
+
+    let authority = DefaultAuthority::new(self.dns_server.clone().into(), rfc8215_ips);
     root_authorities.push(Arc::new(authority));
     catalog.upsert(LowerName::new(&name), root_authorities);
 

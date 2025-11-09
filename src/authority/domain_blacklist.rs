@@ -13,17 +13,17 @@ use hickory_server::{
   store::forwarder::ForwardLookup,
 };
 use std::collections::HashSet;
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use tracing::{info, warn};
 
 pub struct DomainBlacklistAuthority {
   blacklisted: HashSet<LowerName>,
-  default_ip: Option<Ipv4Addr>,
+  default_ip: Option<IpAddr>,
   origin: LowerName,
 }
 
 impl DomainBlacklistAuthority {
-  pub fn new(blacklisted: HashSet<LowerName>, default_ip: Option<Ipv4Addr>) -> Self {
+  pub fn new(blacklisted: HashSet<LowerName>, default_ip: Option<IpAddr>) -> Self {
     info!("Domains {:?} will be ingnored", blacklisted);
     Self {
       blacklisted,

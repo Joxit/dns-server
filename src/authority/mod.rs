@@ -7,23 +7,29 @@ use hickory_server::{
   store::forwarder::ForwardLookup,
 };
 use std::{
-  net::{Ipv4Addr, Ipv6Addr},
+  net::{IpAddr, Ipv4Addr, Ipv6Addr},
   sync::Arc,
 };
 mod default;
 mod domain_blacklist;
+mod local_dns;
 mod zone_blacklist;
 
 pub(crate) use crate::authority::default::DefaultAuthority;
 pub(crate) use crate::authority::domain_blacklist::DomainBlacklistAuthority;
+pub(crate) use crate::authority::local_dns::LocalDNSAuthority;
 pub(crate) use crate::authority::zone_blacklist::ZoneBlacklistAuthority;
 
 pub fn forge_or_error(
-  ip: Option<Ipv4Addr>,
+  ip: Option<IpAddr>,
   request_info: RequestInfo<'_>,
 ) -> LookupControlFlow<ForwardLookup> {
   let lookup = if let Some(ip) = ip {
-    let record = Record::from_rdata(request_info.query.name().into(), u32::MAX, RData::A(A(ip)));
+    let rdata = match ip {
+      IpAddr::V4(ip) => RData::A(A(ip)),
+      IpAddr::V6(ip) => RData::AAAA(AAAA(ip)),
+    };
+    let record = Record::from_rdata(request_info.query.name().into(), 600, rdata);
     ResolverLookup::new_with_max_ttl(request_info.query.original().clone(), Arc::new([record]))
   } else {
     ResolverLookup::new_with_max_ttl(request_info.query.original().clone(), Arc::new([]))
@@ -36,6 +42,13 @@ fn ipv4_to_prefixed_ipv6(ip: &Ipv4Addr) -> Ipv6Addr {
   let g = ((a as u16) << 8) + (b as u16);
   let h = ((c as u16) << 8) + (d as u16);
   Ipv6Addr::new(0x64, 0xff9b, 0, 0, 0, 0, g, h)
+}
+
+pub fn to_prefixed_ip(ip: &IpAddr) -> IpAddr {
+  match ip {
+    IpAddr::V4(ip) => IpAddr::V6(ipv4_to_prefixed_ipv6(ip)),
+    IpAddr::V6(ip) => IpAddr::V6(*ip),
+  }
 }
 
 pub fn ipv4_to_prefixed_ipv6_records(ipv4_records: ResolverLookup) -> ForwardLookup {

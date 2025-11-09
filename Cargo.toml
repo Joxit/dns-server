@@ -17,7 +17,7 @@ clap_complete = { version = "^4.5" }
 hickory-server = { version = "^0.25", features = ["https-ring", "resolver"] }
 hickory-resolver = { version = "^0.25", features = ["https-ring"] }
 hickory-client = { version = "^0.25", features = ["https-ring"] }
-tokio = "^1.47"
+tokio = {version = "^1.47", features =["fs"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "^0.3", features = ["env-filter"] }
 rustls = "^0.23"

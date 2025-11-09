@@ -11,16 +11,16 @@ use hickory_server::{
   server::RequestInfo,
   store::forwarder::ForwardLookup,
 };
-use std::net::Ipv4Addr;
+use std::net::IpAddr;
 use tracing::{info, warn};
 
 pub struct ZoneBlacklistAuthority {
   origin: LowerName,
-  default_ip: Option<Ipv4Addr>,
+  default_ip: Option<IpAddr>,
 }
 
 impl ZoneBlacklistAuthority {
-  pub fn new(name: LowerName, default_ip: Option<Ipv4Addr>) -> Self {
+  pub fn new(name: LowerName, default_ip: Option<IpAddr>) -> Self {
     info!("Domain zone {} will be ignored", name);
     Self {
       origin: name,
