@@ -1,0 +1,6 @@
+127.0.0.1 localhost
+127.0.0.1 a.localhost b.localhost
+0.0.0.0		tab.broadcast
+::  ipv6.localhost
+:: comment.localhost # this is a comment
+:: 127.0.0.10

@@ -153,3 +153,38 @@ impl Authority for LocalDNSAuthority {
     LookupControlFlow::Skip
   }
 }
+
+#[cfg(test)]
+mod test {
+  use super::*;
+  use core::net::{Ipv4Addr, Ipv6Addr};
+
+  #[tokio::test]
+  async fn read_local_dns_file() {
+    let result =
+      super::read_local_dns_file(&PathBuf::from("tests/resources/local_dns_file.txt")).await;
+    assert!(result.is_ok(), "Error: {:?}", result);
+    let hm = result.unwrap();
+    assert_eq!(hm.len(), 7);
+    vec!["localhost.", "a.localhost.", "b.localhost."]
+      .iter()
+      .for_each(|domain| {
+        assert_eq!(
+          hm.get(&LowerName::from_str(domain).unwrap()),
+          Some(&Ipv4Addr::new(127, 0, 0, 1).into())
+        )
+      });
+    assert_eq!(
+      hm.get(&LowerName::from_str("tab.broadcast.").unwrap()),
+      Some(&Ipv4Addr::new(0, 0, 0, 0).into())
+    );
+    vec!["ipv6.localhost.", "comment.localhost.", "127.0.0.10."]
+      .iter()
+      .for_each(|domain| {
+        assert_eq!(
+          hm.get(&LowerName::from_str(domain).unwrap()),
+          Some(&Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0).into())
+        )
+      });
+  }
+}

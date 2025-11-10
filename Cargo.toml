@@ -17,12 +17,12 @@ clap_complete = { version = "^4.5" }
 hickory-server = { version = "^0.25", features = ["https-ring", "resolver"] }
 hickory-resolver = { version = "^0.25", features = ["https-ring"] }
 hickory-client = { version = "^0.25", features = ["https-ring"] }
-tokio = {version = "^1.47", features =["fs"] }
+tokio = {version = "^1.48", features =["fs"] }
 tracing = "0.1.41"
 tracing-subscriber = { version = "^0.3", features = ["env-filter"] }
 rustls = "^0.23"
 rustls-native-certs = "^0.8"
 tokio-graceful = "^0.2"
-regex = "^1.11"
+regex = "^1.12"
 anyhow = "^1.0"
 ipnet = "^2.11"
