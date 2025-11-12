@@ -138,7 +138,7 @@ impl TryFrom<&str> for ClientType {
     let Some(caps) = regex.captures(s) else {
       bail!("");
     };
-    println!("{:?}", caps);
+
     let ip4: Result<IpAddr> = caps
       .name("ipv4")
       .map_or(Err(anyhow!("IP of the dns server not found")), |ip| {

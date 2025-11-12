@@ -46,7 +46,7 @@ impl Authority for DomainBlacklistAuthority {
   }
 
   async fn update(&self, _update: &MessageRequest) -> UpdateResult<bool> {
-    Err(ResponseCode::NoError)
+    UpdateResult::Ok(false)
   }
 
   fn origin(&self) -> &LowerName {
@@ -62,7 +62,7 @@ impl Authority for DomainBlacklistAuthority {
     if self.blacklisted.contains(name) {
       LookupControlFlow::Break(Err(LookupError::ResponseCode(ResponseCode::NoError)))
     } else {
-      LookupControlFlow::Continue(Err(LookupError::ResponseCode(ResponseCode::NoError)))
+      LookupControlFlow::Skip
     }
   }
 
@@ -75,7 +75,7 @@ impl Authority for DomainBlacklistAuthority {
       warn!("Domain name ignored {}", request_info.query.name());
       forge_or_error(self.default_ip, request_info)
     } else {
-      LookupControlFlow::Continue(Err(LookupError::ResponseCode(ResponseCode::NoError)))
+      LookupControlFlow::Skip
     }
   }
 
@@ -88,7 +88,7 @@ impl Authority for DomainBlacklistAuthority {
       warn!("Domain name ignored {}", name);
       LookupControlFlow::Break(Err(LookupError::ResponseCode(ResponseCode::NoError)))
     } else {
-      LookupControlFlow::Continue(Err(LookupError::ResponseCode(ResponseCode::NoError)))
+      LookupControlFlow::Skip
     }
   }
 }
