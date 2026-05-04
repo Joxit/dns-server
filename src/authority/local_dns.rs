@@ -4,13 +4,13 @@ use crate::{
 };
 use anyhow::{anyhow, Context, Result};
 use core::net::IpAddr;
-use hickory_server::{
-  authority::{
-    Authority, LookupControlFlow, LookupOptions, MessageRequest, UpdateResult, ZoneType,
-  },
-  proto::rr::{LowerName, RecordType},
-  server::RequestInfo,
-  store::forwarder::ForwardLookup,
+use hickory_server::proto::{
+  op::ResponseCode,
+  rr::{LowerName, RecordType, TSigResponseContext},
+};
+use hickory_server::server::{Request, RequestInfo};
+use hickory_server::zone_handler::{
+  AuthLookup, AxfrPolicy, LookupControlFlow, LookupError, LookupOptions, ZoneHandler, ZoneType,
 };
 use regex::Regex;
 use std::{collections::HashMap, path::PathBuf, str::FromStr, sync::Arc};
@@ -91,19 +91,21 @@ impl LocalDNSAuthority {
 }
 
 #[async_trait::async_trait]
-impl Authority for LocalDNSAuthority {
-  type Lookup = ForwardLookup;
-
+impl ZoneHandler for LocalDNSAuthority {
   fn zone_type(&self) -> ZoneType {
     ZoneType::Primary
   }
 
-  fn is_axfr_allowed(&self) -> bool {
-    false
+  fn axfr_policy(&self) -> AxfrPolicy {
+    AxfrPolicy::Deny
   }
 
-  async fn update(&self, _update: &MessageRequest) -> UpdateResult<bool> {
-    UpdateResult::Ok(false)
+  async fn update(
+    &self,
+    _update: &Request,
+    _now: u64,
+  ) -> (Result<bool, ResponseCode>, Option<TSigResponseContext>) {
+    (Err(ResponseCode::NoError), None)
   }
 
   fn origin(&self) -> &LowerName {
@@ -113,17 +115,19 @@ impl Authority for LocalDNSAuthority {
   async fn lookup(
     &self,
     _name: &LowerName,
-    _query_type: RecordType,
+    _rtype: RecordType,
+    _request_info: Option<&RequestInfo<'_>>,
     _lookup_options: LookupOptions,
-  ) -> LookupControlFlow<Self::Lookup> {
+  ) -> LookupControlFlow<AuthLookup> {
     LookupControlFlow::Skip
   }
 
   async fn search(
     &self,
-    request_info: RequestInfo<'_>,
+    request: &Request,
     _lookup_options: LookupOptions,
-  ) -> LookupControlFlow<Self::Lookup> {
+  ) -> (LookupControlFlow<AuthLookup>, Option<TSigResponseContext>) {
+    let request_info = request.request_info().unwrap();
     let name = request_info.query.name();
     let local_dns_resolver = self.local_dns_resolver.clone();
     let ip = local_dns_resolver
@@ -132,25 +136,25 @@ impl Authority for LocalDNSAuthority {
       .name_ip
       .get(name)
       .map(|ip| {
-        if self.rfc8215_ips.contains_sock_addr(request_info.src) {
+        if self.rfc8215_ips.contains_sock_addr(request.src()) {
           to_prefixed_ip(ip)
         } else {
           *ip
         }
       });
     if request_info.query.query_type().is_ip_addr() && ip.is_some() {
-      forge_or_error(ip, request_info)
+      (forge_or_error(ip, request_info), None)
     } else {
-      LookupControlFlow::Skip
+      (LookupControlFlow::Skip, None)
     }
   }
 
-  async fn get_nsec_records(
+  async fn nsec_records(
     &self,
     _name: &LowerName,
     _lookup_options: LookupOptions,
-  ) -> LookupControlFlow<Self::Lookup> {
-    LookupControlFlow::Skip
+  ) -> LookupControlFlow<AuthLookup> {
+    LookupControlFlow::Break(Err(LookupError::ResponseCode(ResponseCode::NoError)))
   }
 }
 

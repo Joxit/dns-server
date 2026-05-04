@@ -3,7 +3,7 @@ use clap::{
   builder::{PossibleValue, TypedValueParser, ValueParserFactory},
   Arg, Command,
 };
-use hickory_server::resolver::config::NameServerConfigGroup;
+use hickory_server::resolver::config::{ConnectionConfig, NameServerConfig, CLOUDFLARE, GOOGLE};
 use regex::Regex;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
@@ -20,21 +20,35 @@ pub enum ClientType {
   CustomH2(IpAddr, String, u16),
 }
 
-impl Into<NameServerConfigGroup> for ClientType {
-  fn into(self) -> NameServerConfigGroup {
+impl Into<Vec<NameServerConfig>> for ClientType {
+  fn into(self) -> Vec<NameServerConfig> {
     match self {
-      ClientType::Google => NameServerConfigGroup::google(),
-      ClientType::CloudFlare => NameServerConfigGroup::cloudflare(),
-      ClientType::GoogleTLS => NameServerConfigGroup::google_tls(),
-      ClientType::CloudFlareTLS => NameServerConfigGroup::cloudflare_tls(),
-      ClientType::CloudFlareH2 => NameServerConfigGroup::cloudflare_https(),
-      ClientType::GoogleH2 => NameServerConfigGroup::google_https(),
-      ClientType::CustomDNS(ip, port) => NameServerConfigGroup::from_ips_clear(&[ip], port, true),
+      ClientType::Google => GOOGLE.udp().collect(),
+      ClientType::CloudFlare => CLOUDFLARE.udp().collect(),
+      ClientType::GoogleTLS => GOOGLE.tls().collect(),
+      ClientType::CloudFlareTLS => CLOUDFLARE.tls().collect(),
+      ClientType::CloudFlareH2 => CLOUDFLARE.https().collect(),
+      ClientType::GoogleH2 => GOOGLE.https().collect(),
+      ClientType::CustomDNS(ip, port) => {
+        let mut connection = ConnectionConfig::udp();
+        connection.port = port;
+        let mut name_server = NameServerConfig::udp(ip);
+        name_server.connections = vec![connection];
+        vec![name_server]
+      }
       ClientType::CustomTLS(ip, domain, port) => {
-        NameServerConfigGroup::from_ips_tls(&[ip], port, domain, true)
+        let mut connection = ConnectionConfig::tls(domain.clone().into());
+        connection.port = port;
+        let mut name_server = NameServerConfig::tls(ip, domain.into());
+        name_server.connections = vec![connection];
+        vec![name_server]
       }
       ClientType::CustomH2(ip, domain, port) => {
-        NameServerConfigGroup::from_ips_https(&[ip], port, domain, true)
+        let mut connection = ConnectionConfig::https(domain.clone().into(), None);
+        connection.port = port;
+        let mut name_server = NameServerConfig::https(ip, domain.into(), None);
+        name_server.connections = vec![connection];
+        vec![name_server]
       }
     }
   }

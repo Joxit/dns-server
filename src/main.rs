@@ -4,18 +4,14 @@ use crate::authority::{
 use crate::client::*;
 use anyhow::{anyhow, bail, Context, Result};
 use clap::{builder::ArgPredicate, Parser};
-use hickory_server::{
-  authority::{AuthorityObject, Catalog},
-  proto::rr::LowerName,
-  proto::rustls::default_provider,
-  resolver::Name,
-  ServerFuture,
-};
+use hickory_server::net::tls::default_provider;
+use hickory_server::proto::rr::{LowerName, Name};
+use hickory_server::zone_handler::{Catalog, ZoneHandler};
+use hickory_server::Server;
 use ip::{IpRange, IpRangeVec};
 use ipnet::IpNet;
-use rustls::pki_types::pem::PemObject;
 use rustls::{
-  pki_types::{CertificateDer, PrivateKeyDer},
+  pki_types::{pem::PemObject, CertificateDer, PrivateKeyDer},
   server::ResolvesServerCert,
   sign::{CertifiedKey, SingleCertAndKey},
 };
@@ -73,7 +69,7 @@ pub struct DNSServer {
   /// Listen port of the https/h2 server.
   #[arg(long = "h2-port", default_value("443"))]
   h2_port: u16,
-  /// Listen port of the https/h2 server.
+  /// Listen path of the https/h2 server.
   #[arg(long = "h2-path", default_value("/"))]
   h2_path: String,
   /// Activate DNS over TLS (TCP) server beside classic DNS server over UDP.
@@ -118,10 +114,10 @@ fn main() -> Result<()> {
 
   let catalog = runtime.block_on(args.generate_catalog())?;
 
-  let mut server = ServerFuture::with_access(
+  let mut server = Server::with_access(
     catalog,
-    &args.get_networks(&args.deny_networks)?,
-    &args.get_networks(&args.allow_networks)?,
+    args.get_networks(&args.deny_networks)?,
+    args.get_networks(&args.allow_networks)?,
   );
 
   info!("Will listen UDP requests on {}:{}", args.listen, args.port);
@@ -190,7 +186,7 @@ impl DNSServer {
       catalog.upsert(domain.clone(), vec![Arc::new(authority)]);
     }
 
-    let mut root_authorities: Vec<Arc<dyn AuthorityObject>> = vec![];
+    let mut root_authorities: Vec<Arc<dyn ZoneHandler>> = vec![];
     let domains_blacklisted = self.get_blacklist(&self.blacklist)?;
     if !domains_blacklisted.is_empty() {
       print!("{:?}", domains_blacklisted);

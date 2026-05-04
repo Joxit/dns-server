@@ -1,15 +1,11 @@
-use hickory_client::proto::rr::rdata::AAAA;
-use hickory_resolver::lookup::Lookup as ResolverLookup;
-use hickory_server::{
-  authority::LookupControlFlow,
-  proto::rr::{rdata::A, RData, Record},
-  server::RequestInfo,
-  store::forwarder::ForwardLookup,
+use hickory_server::proto::rr::{
+  rdata::{A, AAAA},
+  RData, Record,
 };
-use std::{
-  net::{IpAddr, Ipv4Addr, Ipv6Addr},
-  sync::Arc,
-};
+use hickory_server::resolver::lookup::Lookup as ResolverLookup;
+use hickory_server::server::RequestInfo;
+use hickory_server::zone_handler::{AuthLookup, LookupControlFlow};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 mod default;
 mod domain_blacklist;
 mod local_dns;
@@ -23,18 +19,18 @@ pub(crate) use crate::authority::zone_blacklist::ZoneBlacklistAuthority;
 pub fn forge_or_error(
   ip: Option<IpAddr>,
   request_info: RequestInfo<'_>,
-) -> LookupControlFlow<ForwardLookup> {
+) -> LookupControlFlow<AuthLookup> {
   let lookup = if let Some(ip) = ip {
     let rdata = match ip {
       IpAddr::V4(ip) => RData::A(A(ip)),
       IpAddr::V6(ip) => RData::AAAA(AAAA(ip)),
     };
     let record = Record::from_rdata(request_info.query.name().into(), 600, rdata);
-    ResolverLookup::new_with_max_ttl(request_info.query.original().clone(), Arc::new([record]))
+    ResolverLookup::new_with_max_ttl(request_info.query.original().clone(), [record])
   } else {
-    ResolverLookup::new_with_max_ttl(request_info.query.original().clone(), Arc::new([]))
+    ResolverLookup::new_with_max_ttl(request_info.query.original().clone(), [])
   };
-  LookupControlFlow::Break(Ok(ForwardLookup(lookup)))
+  LookupControlFlow::Break(Ok(AuthLookup::Resolved(lookup)))
 }
 
 fn ipv4_to_prefixed_ipv6(ip: &Ipv4Addr) -> Ipv6Addr {
@@ -51,26 +47,16 @@ pub fn to_prefixed_ip(ip: &IpAddr) -> IpAddr {
   }
 }
 
-pub fn ipv4_to_prefixed_ipv6_records(ipv4_records: ResolverLookup) -> ForwardLookup {
-  let records: Vec<Record> = ipv4_records
-    .records()
+pub fn ipv4_to_prefixed_ipv6_records(ipv4_records: AuthLookup) -> Vec<Record> {
+  ipv4_records
     .iter()
-    .map(|r| {
-      if let Ok(a) = r.data().clone().into_a() {
-        Record::from_rdata(
-          r.name().clone(),
-          r.ttl(),
-          RData::AAAA(AAAA(ipv4_to_prefixed_ipv6(&a))),
-        )
-      } else {
-        Record::from_rdata(r.name().clone(), r.ttl(), r.data().clone())
-      }
+    .map(|r| match r.data.clone().ip_addr() {
+      Some(IpAddr::V4(a)) => Record::from_rdata(
+        r.name.clone(),
+        r.ttl,
+        RData::AAAA(AAAA(ipv4_to_prefixed_ipv6(&a))),
+      ),
+      _ => Record::from_rdata(r.name.clone(), r.ttl, r.data.clone()),
     })
-    .collect();
-
-  let lookup = ResolverLookup::new_with_max_ttl(
-    ipv4_records.query().clone(),
-    records.into_boxed_slice().into(),
-  );
-  return ForwardLookup(lookup);
+    .collect()
 }
