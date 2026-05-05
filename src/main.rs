@@ -37,7 +37,7 @@ pub mod ip;
 
 /// Create a DNS server you can configure to block some domain and zones. You can use UDP or DNS over TLS/TCP (DoT) or DNS over HTTPS/H2 (DoH) as listeners (frontend) and resolver (backend).
 #[derive(Parser, Debug)]
-#[structopt(name = "dns-server", author, version, about)]
+#[command(name = "dns-server", author, version, about)]
 pub struct DNSServer {
   /// Listen port of the classic DNS server over UDP.
   #[arg(long = "port", short = 'p', default_value = "53")]
@@ -92,10 +92,10 @@ pub struct DNSServer {
   rfc8215_ips: Option<PathBuf>,
   /// Networks denied to access the server
   #[arg(long = "deny-networks")]
-  deny_networks: Option<PathBuf>,
+  deny_networks: Vec<PathBuf>,
   /// Networks allowed to access the server
   #[arg(long = "allow-networks")]
-  allow_networks: Option<PathBuf>,
+  allow_networks: Vec<PathBuf>,
   /// Local DNS file in /etc/hosts style
   #[arg(long = "local-dns-file")]
   local_dns_file: Option<PathBuf>,
@@ -189,7 +189,6 @@ impl DNSServer {
     let mut root_authorities: Vec<Arc<dyn ZoneHandler>> = vec![];
     let domains_blacklisted = self.get_blacklist(&self.blacklist)?;
     if !domains_blacklisted.is_empty() {
-      print!("{:?}", domains_blacklisted);
       let authority = DomainBlacklistAuthority::new(domains_blacklisted, self.default_ip.clone());
       root_authorities.push(Arc::new(authority));
     }
@@ -228,8 +227,10 @@ impl DNSServer {
     Ok(IpRangeVec::new(ip_ranges))
   }
 
-  fn get_networks(&self, path: &Option<PathBuf>) -> Result<Vec<IpNet>> {
-    if let Some(path) = path {
+  fn get_networks(&self, paths: &Vec<PathBuf>) -> Result<Vec<IpNet>> {
+    let mut all_networks = vec![];
+
+    for path in paths {
       let error = format!("Networks: Failed to process `{}` file", path.display());
       let mut file = std::fs::File::open(path).with_context(|| error.clone())?;
       let mut buffer = String::new();
@@ -243,10 +244,9 @@ impl DNSServer {
         .filter(|network| !network.is_empty())
         .map(|network| IpNet::from_str(network).with_context(|| error.clone()))
         .collect::<Result<Vec<IpNet>>>()?;
-      Ok(networks)
-    } else {
-      Ok(vec![])
+      all_networks.push(networks);
     }
+    Ok(all_networks.into_iter().flatten().collect())
   }
 
   fn get_blacklist(&self, list: &Option<PathBuf>) -> Result<HashSet<LowerName>> {
