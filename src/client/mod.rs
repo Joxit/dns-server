@@ -15,9 +15,15 @@ pub enum ClientType {
   GoogleTLS,
   CloudFlareH2,
   GoogleH2,
+  CloudFlareH3,
+  GoogleH3,
+  CloudFlareQuic,
+  GoogleQuic,
   CustomDNS(IpAddr, u16),
   CustomTLS(IpAddr, String, u16),
   CustomH2(IpAddr, String, u16),
+  CustomH3(IpAddr, String, u16),
+  CustomQuic(IpAddr, String, u16),
 }
 
 impl Into<Vec<NameServerConfig>> for ClientType {
@@ -29,6 +35,10 @@ impl Into<Vec<NameServerConfig>> for ClientType {
       ClientType::CloudFlareTLS => CLOUDFLARE.tls().collect(),
       ClientType::CloudFlareH2 => CLOUDFLARE.https().collect(),
       ClientType::GoogleH2 => GOOGLE.https().collect(),
+      ClientType::CloudFlareH3 => CLOUDFLARE.h3().collect(),
+      ClientType::GoogleH3 => GOOGLE.h3().collect(),
+      ClientType::CloudFlareQuic => CLOUDFLARE.quic().collect(),
+      ClientType::GoogleQuic => GOOGLE.quic().collect(),
       ClientType::CustomDNS(ip, port) => {
         let mut connection = ConnectionConfig::udp();
         connection.port = port;
@@ -47,6 +57,20 @@ impl Into<Vec<NameServerConfig>> for ClientType {
         let mut connection = ConnectionConfig::https(domain.clone().into(), None);
         connection.port = port;
         let mut name_server = NameServerConfig::https(ip, domain.into(), None);
+        name_server.connections = vec![connection];
+        vec![name_server]
+      }
+      ClientType::CustomH3(ip, domain, port) => {
+        let mut connection = ConnectionConfig::h3(domain.clone().into(), None);
+        connection.port = port;
+        let mut name_server = NameServerConfig::h3(ip, domain.into(), None);
+        name_server.connections = vec![connection];
+        vec![name_server]
+      }
+      ClientType::CustomQuic(ip, domain, port) => {
+        let mut connection = ConnectionConfig::quic(domain.clone().into());
+        connection.port = port;
+        let mut name_server = NameServerConfig::quic(ip, domain.into());
         name_server.connections = vec![connection];
         vec![name_server]
       }
@@ -70,10 +94,14 @@ impl ClientTypeParser {
       "google:tls",
       "cloudflare:h2",
       "google:h2",
+      "cloudflare:h3",
+      "google:h3",
+      "cloudflare:quic",
+      "google:quic",
       "ipv4:port",
       "[ipv6]:port",
-      "ipv4:port:<tls|h2>:domain",
-      "[ipv6]:port:<tls|h2>:domain",
+      "ipv4:port:<tls|h2|h3|quic>:domain",
+      "[ipv6]:port:<tls|h2|h3|quic>:domain",
     ]
   }
 }
@@ -95,6 +123,10 @@ impl TypedValueParser for ClientTypeParser {
       "google:tls" => Ok(ClientType::GoogleTLS),
       "cloudflare:h2" => Ok(ClientType::CloudFlareH2),
       "google:h2" => Ok(ClientType::GoogleH2),
+      "cloudflare:h3" => Ok(ClientType::CloudFlareH2),
+      "google:h3" => Ok(ClientType::GoogleH3),
+      "cloudflare:quic" => Ok(ClientType::CloudFlareH2),
+      "google:quic" => Ok(ClientType::GoogleQuic),
       s => match ClientType::try_from(s) {
         Ok(client) => Ok(client),
         Err(client_err) => {
@@ -147,7 +179,7 @@ impl TryFrom<&str> for ClientType {
 
   fn try_from(s: &str) -> Result<ClientType, Self::Error> {
     let regex =
-      Regex::new(r"^((?<ipv4>\d+.\d+.\d+.\d+)|\[(?<ipv6>[a-fA-F0-9:]+)\])(:(?<port>\d+)?:?((?<proto>h2|tls):(?<domain>.*))?)?$")
+      Regex::new(r"^((?<ipv4>\d+.\d+.\d+.\d+)|\[(?<ipv6>[a-fA-F0-9:]+)\])(:(?<port>\d+)?:?((?<proto>h2|tls|h3|quic):(?<domain>.*))?)?$")
         .unwrap();
     let Some(caps) = regex.captures(s) else {
       bail!("");
@@ -187,6 +219,16 @@ impl TryFrom<&str> for ClientType {
         port.unwrap_or(853),
       )),
       Some("h2") => Ok(ClientType::CustomH2(
+        ip,
+        domain.ok_or_else(|| anyhow!("No domain found for TLS connection."))?,
+        port.unwrap_or(443),
+      )),
+      Some("h3") => Ok(ClientType::CustomH3(
+        ip,
+        domain.ok_or_else(|| anyhow!("No domain found for TLS connection."))?,
+        port.unwrap_or(443),
+      )),
+      Some("quic") => Ok(ClientType::CustomQuic(
         ip,
         domain.ok_or_else(|| anyhow!("No domain found for TLS connection."))?,
         port.unwrap_or(443),
@@ -314,5 +356,79 @@ mod test {
     assert!(ClientType::try_from("example.com:443:h2:cloudflare-dns.com").is_err());
     assert!(ClientType::try_from("example.com:h2:cloudflare-dns.com").is_err());
     assert!(ClientType::try_from("256.255.254.253:h2:cloudflare-dns.com").is_err());
+  }
+
+  #[test]
+  pub fn covert_custom_h3() {
+    let cloudflare = "cloudflare-dns.com";
+    let ip4 = ClientType::try_from("1.1.1.1:h3:cloudflare-dns.com");
+    let ip4_port = ClientType::try_from("1.1.1.1:1443:h3:cloudflare-dns.com");
+    let ip6 = ClientType::try_from("[2606:4700:4700::1111]:h3:cloudflare-dns.com");
+    let ip6_port = ClientType::try_from("[2606:4700:4700::1111]:1443:h3:cloudflare-dns.com");
+
+    assert!(ip4.is_ok());
+    assert!(ip4_port.is_ok());
+
+    assert_eq!(
+      ip4.unwrap(),
+      ClientType::CustomH3(ipv4("1.1.1.1"), cloudflare.to_string(), 443)
+    );
+    assert_eq!(
+      ip4_port.unwrap(),
+      ClientType::CustomH3(ipv4("1.1.1.1"), cloudflare.to_string(), 1443)
+    );
+    assert_eq!(
+      ip6.unwrap(),
+      ClientType::CustomH3(ipv6("2606:4700:4700::1111"), cloudflare.to_string(), 443)
+    );
+    assert_eq!(
+      ip6_port.unwrap(),
+      ClientType::CustomH3(ipv6("2606:4700:4700::1111"), cloudflare.to_string(), 1443)
+    );
+
+    assert!(ClientType::try_from("1.1.1.1:443:h3").is_err());
+    assert!(ClientType::try_from("1.1.1.1:-443:h3:cloudflare-dns.com").is_err());
+    assert!(ClientType::try_from("1.1.1.1:0:h3:cloudflare-dns.com").is_err());
+    assert!(ClientType::try_from("6:4700:4700::111:h3:cloudflare-dns.com").is_err());
+    assert!(ClientType::try_from("example.com:443:h3:cloudflare-dns.com").is_err());
+    assert!(ClientType::try_from("example.com:h3:cloudflare-dns.com").is_err());
+    assert!(ClientType::try_from("256.255.254.253:h3:cloudflare-dns.com").is_err());
+  }
+
+  #[test]
+  pub fn covert_custom_quic() {
+    let cloudflare = "cloudflare-dns.com";
+    let ip4 = ClientType::try_from("1.1.1.1:quic:cloudflare-dns.com");
+    let ip4_port = ClientType::try_from("1.1.1.1:1443:quic:cloudflare-dns.com");
+    let ip6 = ClientType::try_from("[2606:4700:4700::1111]:quic:cloudflare-dns.com");
+    let ip6_port = ClientType::try_from("[2606:4700:4700::1111]:1443:quic:cloudflare-dns.com");
+
+    assert!(ip4.is_ok());
+    assert!(ip4_port.is_ok());
+
+    assert_eq!(
+      ip4.unwrap(),
+      ClientType::CustomQuic(ipv4("1.1.1.1"), cloudflare.to_string(), 443)
+    );
+    assert_eq!(
+      ip4_port.unwrap(),
+      ClientType::CustomQuic(ipv4("1.1.1.1"), cloudflare.to_string(), 1443)
+    );
+    assert_eq!(
+      ip6.unwrap(),
+      ClientType::CustomQuic(ipv6("2606:4700:4700::1111"), cloudflare.to_string(), 443)
+    );
+    assert_eq!(
+      ip6_port.unwrap(),
+      ClientType::CustomQuic(ipv6("2606:4700:4700::1111"), cloudflare.to_string(), 1443)
+    );
+
+    assert!(ClientType::try_from("1.1.1.1:443:quic").is_err());
+    assert!(ClientType::try_from("1.1.1.1:-443:quic:cloudflare-dns.com").is_err());
+    assert!(ClientType::try_from("1.1.1.1:0:quic:cloudflare-dns.com").is_err());
+    assert!(ClientType::try_from("6:4700:4700::111:quic:cloudflare-dns.com").is_err());
+    assert!(ClientType::try_from("example.com:443:quic:cloudflare-dns.com").is_err());
+    assert!(ClientType::try_from("example.com:quic:cloudflare-dns.com").is_err());
+    assert!(ClientType::try_from("256.255.254.253:quic:cloudflare-dns.com").is_err());
   }
 }
