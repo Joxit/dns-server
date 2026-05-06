@@ -72,6 +72,15 @@ pub struct DNSServer {
   /// Listen path of the https/h2 server.
   #[arg(long = "h2-path", default_value("/"))]
   h2_path: String,
+  /// Activate https/h2 server beside classic DNS server over UDP.
+  #[arg(
+    long = "quic",
+    default_value_if("quic_port", ArgPredicate::IsPresent, Some("true"))
+  )]
+  quic: bool,
+  /// Listen port of the https/h2 server.
+  #[arg(long = "quic-port", default_value("853"))]
+  quic_port: u16,
   /// Activate DNS over TLS (TCP) server beside classic DNS server over UDP.
   #[arg(
     long = "tls",
@@ -130,7 +139,7 @@ fn main() -> Result<()> {
 
   if args.h2 {
     info!(
-      "Will listen HTTPS/H2 resquests on {}:{}",
+      "Will listen HTTPS/H2 requests on {}:{}",
       args.listen, args.h2_port
     );
     let https_listener = runtime
@@ -150,9 +159,34 @@ fn main() -> Result<()> {
       .with_context(|| "could not register HTTPS listener")?;
   }
 
+  if args.quic {
+    info!(
+      "Will listen QUIC requests on {}:{}",
+      args.listen, args.quic_port
+    );
+    let quic_listener = runtime
+      .block_on(UdpSocket::bind((args.listen.clone(), args.quic_port)))
+      .with_context(|| {
+        format!(
+          "could not bind QUIC port {}:{}",
+          args.listen, args.quic_port
+        )
+      })?;
+
+    let _guard = runtime.enter();
+
+    server
+      .register_quic_listener(
+        quic_listener,
+        Duration::from_secs(2),
+        args.get_certificates()?,
+      )
+      .with_context(|| "could not register HTTPS listener")?;
+  }
+
   if args.tls {
     info!(
-      "Will listen TLS/TCP resquests on {}:{}",
+      "Will listen TLS/TCP requests on {}:{}",
       args.listen, args.tls_port
     );
     let tls_listener = runtime
