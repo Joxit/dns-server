@@ -100,6 +100,8 @@ impl ClientTypeParser {
       "google:quic",
       "ipv4:port",
       "[ipv6]:port",
+      "ipv4:<tls|h2|h3|quic>:domain",
+      "[ipv6]:<tls|h2|h3|quic>:domain",
       "ipv4:port:<tls|h2|h3|quic>:domain",
       "[ipv6]:port:<tls|h2|h3|quic>:domain",
     ]
@@ -123,9 +125,9 @@ impl TypedValueParser for ClientTypeParser {
       "google:tls" => Ok(ClientType::GoogleTLS),
       "cloudflare:h2" => Ok(ClientType::CloudFlareH2),
       "google:h2" => Ok(ClientType::GoogleH2),
-      "cloudflare:h3" => Ok(ClientType::CloudFlareH2),
+      "cloudflare:h3" => Ok(ClientType::CloudFlareH3),
       "google:h3" => Ok(ClientType::GoogleH3),
-      "cloudflare:quic" => Ok(ClientType::CloudFlareH2),
+      "cloudflare:quic" => Ok(ClientType::CloudFlareQuic),
       "google:quic" => Ok(ClientType::GoogleQuic),
       s => match ClientType::try_from(s) {
         Ok(client) => Ok(client),
@@ -200,7 +202,7 @@ impl TryFrom<&str> for ClientType {
       if p > 0 {
         Ok(Some(p))
       } else {
-        Err(anyhow!("Port must be greater than 0. found {}", p))
+        bail!("Port must be greater than 0. found {}", p)
       }
     })?;
 
@@ -220,18 +222,18 @@ impl TryFrom<&str> for ClientType {
       )),
       Some("h2") => Ok(ClientType::CustomH2(
         ip,
-        domain.ok_or_else(|| anyhow!("No domain found for TLS connection."))?,
+        domain.ok_or_else(|| anyhow!("No domain found for H2 connection."))?,
         port.unwrap_or(443),
       )),
       Some("h3") => Ok(ClientType::CustomH3(
         ip,
-        domain.ok_or_else(|| anyhow!("No domain found for TLS connection."))?,
+        domain.ok_or_else(|| anyhow!("No domain found for H3 connection."))?,
         port.unwrap_or(443),
       )),
       Some("quic") => Ok(ClientType::CustomQuic(
         ip,
-        domain.ok_or_else(|| anyhow!("No domain found for TLS connection."))?,
-        port.unwrap_or(443),
+        domain.ok_or_else(|| anyhow!("No domain found for QUIC connection."))?,
+        port.unwrap_or(853),
       )),
       None => Ok(ClientType::CustomDNS(ip, port.unwrap_or(53))),
       _ => bail!("The protocol {} is not supported", proto.unwrap()),
