@@ -1,4 +1,4 @@
-use anyhow::{anyhow, bail, Result};
+use anyhow::{anyhow, bail, ensure, Result};
 use clap::{
   builder::{PossibleValue, TypedValueParser, ValueParserFactory},
   Arg, Command,
@@ -6,6 +6,7 @@ use clap::{
 use hickory_server::resolver::config::{ConnectionConfig, NameServerConfig, CLOUDFLARE, GOOGLE};
 use regex::Regex;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::sync::Arc;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum ClientType {
@@ -21,8 +22,8 @@ pub enum ClientType {
   GoogleQuic,
   CustomDNS(IpAddr, u16),
   CustomTLS(IpAddr, String, u16),
-  CustomH2(IpAddr, String, u16),
-  CustomH3(IpAddr, String, u16),
+  CustomH2(IpAddr, String, Option<Arc<str>>, u16),
+  CustomH3(IpAddr, String, Option<Arc<str>>, u16),
   CustomQuic(IpAddr, String, u16),
 }
 
@@ -53,17 +54,17 @@ impl Into<Vec<NameServerConfig>> for ClientType {
         name_server.connections = vec![connection];
         vec![name_server]
       }
-      ClientType::CustomH2(ip, domain, port) => {
-        let mut connection = ConnectionConfig::https(domain.clone().into(), None);
+      ClientType::CustomH2(ip, domain, path, port) => {
+        let mut connection = ConnectionConfig::https(domain.clone().into(), path.clone());
         connection.port = port;
-        let mut name_server = NameServerConfig::https(ip, domain.into(), None);
+        let mut name_server = NameServerConfig::https(ip, domain.into(), path);
         name_server.connections = vec![connection];
         vec![name_server]
       }
-      ClientType::CustomH3(ip, domain, port) => {
-        let mut connection = ConnectionConfig::h3(domain.clone().into(), None);
+      ClientType::CustomH3(ip, domain, path, port) => {
+        let mut connection = ConnectionConfig::h3(domain.clone().into(), path.clone());
         connection.port = port;
-        let mut name_server = NameServerConfig::h3(ip, domain.into(), None);
+        let mut name_server = NameServerConfig::h3(ip, domain.into(), path);
         name_server.connections = vec![connection];
         vec![name_server]
       }
@@ -104,6 +105,10 @@ impl ClientTypeParser {
       "[ipv6]:<tls|h2|h3|quic>:domain",
       "ipv4:port:<tls|h2|h3|quic>:domain",
       "[ipv6]:port:<tls|h2|h3|quic>:domain",
+      "ipv4:<h2|h3>:domain",
+      "[ipv6]:<h2|h3>:domain:/path",
+      "ipv4:port:<h2|h3>:domain:/path",
+      "[ipv6]:port:<h2|h3>:domain:/path",
     ]
   }
 }
@@ -181,61 +186,81 @@ impl TryFrom<&str> for ClientType {
 
   fn try_from(s: &str) -> Result<ClientType, Self::Error> {
     let regex =
-      Regex::new(r"^((?<ipv4>\d+.\d+.\d+.\d+)|\[(?<ipv6>[a-fA-F0-9:]+)\])(:(?<port>\d+)?:?((?<proto>h2|tls|h3|quic):(?<domain>.*))?)?$")
+      Regex::new(r"^((?<ipv4>\d+.\d+.\d+.\d+)|\[(?<ipv6>[a-fA-F0-9:]+)\])(:(?<port>\d+)?:?((?<proto>h2|tls|h3|quic):(?<domain>[^:]*)(:(?<path>/.*))?)?)?$")
         .unwrap();
+
     let Some(caps) = regex.captures(s) else {
-      bail!("");
+      bail!("Cannot retrieve dns server configuration");
     };
 
-    let ip4: Result<IpAddr> = caps
-      .name("ipv4")
-      .map_or(Err(anyhow!("IP of the dns server not found")), |ip| {
-        Ok(ip.as_str().parse::<Ipv4Addr>()?.into())
-      });
-
-    let ip: IpAddr = caps
-      .name("ipv6")
-      .map_or(ip4, |ip| Ok(ip.as_str().parse::<Ipv6Addr>()?.into()))?;
+    let ip = match (caps.name("ipv4"), caps.name("ipv6")) {
+      (Some(ip4), _) => ip4.as_str().parse::<Ipv4Addr>()?.into(),
+      (_, Some(ip6)) => ip6.as_str().parse::<Ipv6Addr>()?.into(),
+      _ => bail!("IP of the dns server not found"),
+    };
 
     let port = caps.name("port").map_or(Ok(None), |port| {
       let p = port.as_str().parse::<u16>()?;
       if p > 0 {
         Ok(Some(p))
       } else {
-        bail!("Port must be greater than 0. found {}", p)
+        bail!("Port must be greater than 0 found {}", p)
       }
     })?;
 
-    let proto = caps
-      .name("proto")
-      .map_or(None, |proto| Some(proto.as_str()));
+    let proto = caps.name("proto").map(|proto| proto.as_str());
 
     let domain = caps
       .name("domain")
-      .map_or(None, |domain| Some(domain.as_str().to_string()));
+      .map(|domain| domain.as_str().to_string());
+
+    let path = caps.name("path").map(|s| s.as_str().into());
 
     match proto {
-      Some("tls") => Ok(ClientType::CustomTLS(
-        ip,
-        domain.ok_or_else(|| anyhow!("No domain found for TLS connection."))?,
-        port.unwrap_or(853),
-      )),
+      Some("tls") => {
+        ensure!(
+          path.is_none(),
+          "Path should not be set using {}",
+          proto.unwrap()
+        );
+        Ok(ClientType::CustomTLS(
+          ip,
+          domain.ok_or_else(|| anyhow!("No domain found for TLS connection."))?,
+          port.unwrap_or(853),
+        ))
+      }
       Some("h2") => Ok(ClientType::CustomH2(
         ip,
         domain.ok_or_else(|| anyhow!("No domain found for H2 connection."))?,
+        path,
         port.unwrap_or(443),
       )),
       Some("h3") => Ok(ClientType::CustomH3(
         ip,
         domain.ok_or_else(|| anyhow!("No domain found for H3 connection."))?,
+        path,
         port.unwrap_or(443),
       )),
-      Some("quic") => Ok(ClientType::CustomQuic(
-        ip,
-        domain.ok_or_else(|| anyhow!("No domain found for QUIC connection."))?,
-        port.unwrap_or(853),
-      )),
-      None => Ok(ClientType::CustomDNS(ip, port.unwrap_or(53))),
+      Some("quic") => {
+        ensure!(
+          path.is_none(),
+          "Path should not be set using {}",
+          proto.unwrap()
+        );
+        Ok(ClientType::CustomQuic(
+          ip,
+          domain.ok_or_else(|| anyhow!("No domain found for QUIC connection."))?,
+          port.unwrap_or(853),
+        ))
+      }
+      None => {
+        ensure!(
+          path.is_none(),
+          "Path should not be set using {}",
+          proto.unwrap()
+        );
+        Ok(ClientType::CustomDNS(ip, port.unwrap_or(53)))
+      }
       _ => bail!("The protocol {} is not supported", proto.unwrap()),
     }
   }
@@ -245,192 +270,224 @@ impl TryFrom<&str> for ClientType {
 mod test {
   use super::*;
 
+  fn assert_ok(s: &str, expected: ClientType) {
+    let c = ClientType::try_from(s);
+    assert!(matches!(c, Ok(_)), "`{s}` should be OK but found {c:?}");
+    assert_eq!(c.unwrap(), expected);
+  }
+
+  fn assert_err(s: &str) {
+    let c = ClientType::try_from(s);
+    assert!(matches!(c, Err(_)), "`{s}` should be Err but found {c:?}")
+  }
+
   fn ipv4(ip: &str) -> IpAddr {
     IpAddr::V4(ip.parse::<Ipv4Addr>().unwrap())
   }
+
   fn ipv6(ip: &str) -> IpAddr {
     IpAddr::V6(ip.parse::<Ipv6Addr>().unwrap())
   }
 
+  fn cloudflare() -> String {
+    "cloudflare-dns.com".to_string()
+  }
+
   #[test]
-  pub fn covert_custom_dns() {
-    let ip4 = ClientType::try_from("1.1.1.1");
-    let ip4_port = ClientType::try_from("1.1.1.1:1053");
-    let ip6 = ClientType::try_from("[2606:4700:4700::1111]");
-    let ip6_port = ClientType::try_from("[2606:4700:4700::1111]:1053");
-
-    assert!(ip4.is_ok());
-    assert!(ip4_port.is_ok());
-    assert!(ip6.is_ok());
-    assert!(ip6_port.is_ok());
-
-    assert_eq!(ip4.unwrap(), ClientType::CustomDNS(ipv4("1.1.1.1"), 53));
-    assert_eq!(
-      ip4_port.unwrap(),
-      ClientType::CustomDNS(ipv4("1.1.1.1"), 1053)
+  pub fn covert_custom_dns() -> anyhow::Result<()> {
+    assert_ok("1.1.1.1", ClientType::CustomDNS(ipv4("1.1.1.1"), 53));
+    assert_ok("1.1.1.1:1053", ClientType::CustomDNS(ipv4("1.1.1.1"), 1053));
+    assert_ok(
+      "[2606:4700:4700::1111]",
+      ClientType::CustomDNS(ipv6("2606:4700:4700::1111"), 53),
     );
-    assert_eq!(
-      ip6.unwrap(),
-      ClientType::CustomDNS(ipv6("2606:4700:4700::1111"), 53)
-    );
-    assert_eq!(
-      ip6_port.unwrap(),
-      ClientType::CustomDNS(ipv6("2606:4700:4700::1111"), 1053)
+    assert_ok(
+      "[2606:4700:4700::1111]:1053",
+      ClientType::CustomDNS(ipv6("2606:4700:4700::1111"), 1053),
     );
 
-    assert!(ClientType::try_from("1.1.1.1:-53").is_err());
-    assert!(ClientType::try_from("1.1.1.1:0").is_err());
-    assert!(ClientType::try_from("2606:4700:4700::111").is_err());
-    assert!(ClientType::try_from("6:4:4:2:1").is_err());
-    assert!(ClientType::try_from("example.com:53").is_err());
-    assert!(ClientType::try_from("example.com").is_err());
-    assert!(ClientType::try_from("256.255.254.253").is_err());
+    assert_err("1.1.1.1:-53");
+    assert_err("1.1.1.1:0");
+    assert_err("1.1.1.1:/path");
+    assert_err("1.1.1.1:1853:/path");
+    assert_err("2606:4700:4700::111");
+    assert_err("6:4:4:2:1");
+    assert_err("example.com:53");
+    assert_err("example.com");
+    assert_err("256.255.254.253");
+    assert_err("[2606:4700:4700::1111]:/path");
+    assert_err("[2606:4700:4700::1111]:1053:/path");
+    Ok(())
   }
 
   #[test]
   pub fn covert_custom_tls() {
-    let cloudflare = "cloudflare-dns.com";
-    let ip4 = ClientType::try_from("1.1.1.1:tls:cloudflare-dns.com");
-    let ip4_port = ClientType::try_from("1.1.1.1:1853:tls:cloudflare-dns.com");
-    let ip6 = ClientType::try_from("[2606:4700:4700::1111]:tls:cloudflare-dns.com");
-    let ip6_port = ClientType::try_from("[2606:4700:4700::1111]:1853:tls:cloudflare-dns.com");
-
-    assert!(ip4.is_ok());
-    assert!(ip4_port.is_ok());
-
-    assert_eq!(
-      ip4.unwrap(),
-      ClientType::CustomTLS(ipv4("1.1.1.1"), cloudflare.to_string(), 853)
+    assert_ok(
+      "1.1.1.1:tls:cloudflare-dns.com",
+      ClientType::CustomTLS(ipv4("1.1.1.1"), cloudflare(), 853),
     );
-    assert_eq!(
-      ip4_port.unwrap(),
-      ClientType::CustomTLS(ipv4("1.1.1.1"), cloudflare.to_string(), 1853)
+    assert_ok(
+      "1.1.1.1:1853:tls:cloudflare-dns.com",
+      ClientType::CustomTLS(ipv4("1.1.1.1"), cloudflare(), 1853),
     );
-    assert_eq!(
-      ip6.unwrap(),
-      ClientType::CustomTLS(ipv6("2606:4700:4700::1111"), cloudflare.to_string(), 853)
+    assert_ok(
+      "[2606:4700:4700::1111]:tls:cloudflare-dns.com",
+      ClientType::CustomTLS(ipv6("2606:4700:4700::1111"), cloudflare(), 853),
     );
-    assert_eq!(
-      ip6_port.unwrap(),
-      ClientType::CustomTLS(ipv6("2606:4700:4700::1111"), cloudflare.to_string(), 1853)
+    assert_ok(
+      "[2606:4700:4700::1111]:1853:tls:cloudflare-dns.com",
+      ClientType::CustomTLS(ipv6("2606:4700:4700::1111"), cloudflare(), 1853),
     );
 
-    assert!(ClientType::try_from("1.1.1.1:853:tls").is_err());
-    assert!(ClientType::try_from("1.1.1.1:-853:tls:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("1.1.1.1:0:tls:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("example.com:853:tls:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("example.com:tls:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("256.255.254.253:tls:cloudflare-dns.com").is_err());
+    assert_err("1.1.1.1:853:tls");
+    assert_err("1.1.1.1:-853:tls:cloudflare-dns.com");
+    assert_err("1.1.1.1:0:tls:cloudflare-dns.com");
+    assert_err("1.1.1.1:tls:cloudflare-dns.com:/path");
+    assert_err("1.1.1.1:1853:tls:cloudflare-dns.com:/path");
+    assert_err("example.com:853:tls:cloudflare-dns.com");
+    assert_err("example.com:tls:cloudflare-dns.com");
+    assert_err("256.255.254.253:tls:cloudflare-dns.com");
+    assert_err("[2606:4700:4700::1111]:tls:cloudflare-dns.com:/path");
+    assert_err("[2606:4700:4700::1111]:1853:tls:cloudflare-dns.com:/path");
   }
 
   #[test]
   pub fn covert_custom_h2() {
-    let cloudflare = "cloudflare-dns.com";
-    let ip4 = ClientType::try_from("1.1.1.1:h2:cloudflare-dns.com");
-    let ip4_port = ClientType::try_from("1.1.1.1:1443:h2:cloudflare-dns.com");
-    let ip6 = ClientType::try_from("[2606:4700:4700::1111]:h2:cloudflare-dns.com");
-    let ip6_port = ClientType::try_from("[2606:4700:4700::1111]:1443:h2:cloudflare-dns.com");
+    assert_ok(
+      "1.1.1.1:h2:cloudflare-dns.com",
+      ClientType::CustomH2(ipv4("1.1.1.1"), cloudflare(), None, 443),
+    );
+    assert_ok(
+      "1.1.1.1:h2:cloudflare-dns.com:/path",
+      ClientType::CustomH2(ipv4("1.1.1.1"), cloudflare(), Some("/path".into()), 443),
+    );
+    assert_ok(
+      "1.1.1.1:1443:h2:cloudflare-dns.com",
+      ClientType::CustomH2(ipv4("1.1.1.1"), cloudflare(), None, 1443),
+    );
+    assert_ok(
+      "1.1.1.1:1443:h2:cloudflare-dns.com:/path",
+      ClientType::CustomH2(ipv4("1.1.1.1"), cloudflare(), Some("/path".into()), 1443),
+    );
+    assert_ok(
+      "[2606:4700:4700::1111]:h2:cloudflare-dns.com",
+      ClientType::CustomH2(ipv6("2606:4700:4700::1111"), cloudflare(), None, 443),
+    );
+    assert_ok(
+      "[2606:4700:4700::1111]:h2:cloudflare-dns.com:/path",
+      ClientType::CustomH2(
+        ipv6("2606:4700:4700::1111"),
+        cloudflare(),
+        Some("/path".into()),
+        443,
+      ),
+    );
+    assert_ok(
+      "[2606:4700:4700::1111]:1443:h2:cloudflare-dns.com",
+      ClientType::CustomH2(ipv6("2606:4700:4700::1111"), cloudflare(), None, 1443),
+    );
+    assert_ok(
+      "[2606:4700:4700::1111]:1443:h2:cloudflare-dns.com:/path",
+      ClientType::CustomH2(
+        ipv6("2606:4700:4700::1111"),
+        cloudflare(),
+        Some("/path".into()),
+        1443,
+      ),
+    );
 
-    assert!(ip4.is_ok());
-    assert!(ip4_port.is_ok());
-
-    assert_eq!(
-      ip4.unwrap(),
-      ClientType::CustomH2(ipv4("1.1.1.1"), cloudflare.to_string(), 443)
-    );
-    assert_eq!(
-      ip4_port.unwrap(),
-      ClientType::CustomH2(ipv4("1.1.1.1"), cloudflare.to_string(), 1443)
-    );
-    assert_eq!(
-      ip6.unwrap(),
-      ClientType::CustomH2(ipv6("2606:4700:4700::1111"), cloudflare.to_string(), 443)
-    );
-    assert_eq!(
-      ip6_port.unwrap(),
-      ClientType::CustomH2(ipv6("2606:4700:4700::1111"), cloudflare.to_string(), 1443)
-    );
-
-    assert!(ClientType::try_from("1.1.1.1:443:h2").is_err());
-    assert!(ClientType::try_from("1.1.1.1:-443:h2:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("1.1.1.1:0:h2:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("6:4700:4700::111:h2:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("example.com:443:h2:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("example.com:h2:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("256.255.254.253:h2:cloudflare-dns.com").is_err());
+    assert_err("1.1.1.1:443:h2");
+    assert_err("1.1.1.1:-443:h2:cloudflare-dns.com");
+    assert_err("1.1.1.1:0:h2:cloudflare-dns.com");
+    assert_err("6:4700:4700::111:h2:cloudflare-dns.com");
+    assert_err("example.com:443:h2:cloudflare-dns.com");
+    assert_err("example.com:h2:cloudflare-dns.com");
+    assert_err("256.255.254.253:h2:cloudflare-dns.com");
   }
 
   #[test]
   pub fn covert_custom_h3() {
-    let cloudflare = "cloudflare-dns.com";
-    let ip4 = ClientType::try_from("1.1.1.1:h3:cloudflare-dns.com");
-    let ip4_port = ClientType::try_from("1.1.1.1:1443:h3:cloudflare-dns.com");
-    let ip6 = ClientType::try_from("[2606:4700:4700::1111]:h3:cloudflare-dns.com");
-    let ip6_port = ClientType::try_from("[2606:4700:4700::1111]:1443:h3:cloudflare-dns.com");
+    assert_ok(
+      "1.1.1.1:h3:cloudflare-dns.com",
+      ClientType::CustomH3(ipv4("1.1.1.1"), cloudflare(), None, 443),
+    );
+    assert_ok(
+      "1.1.1.1:h3:cloudflare-dns.com:/path",
+      ClientType::CustomH3(ipv4("1.1.1.1"), cloudflare(), Some("/path".into()), 443),
+    );
+    assert_ok(
+      "1.1.1.1:1443:h3:cloudflare-dns.com",
+      ClientType::CustomH3(ipv4("1.1.1.1"), cloudflare(), None, 1443),
+    );
+    assert_ok(
+      "1.1.1.1:1443:h3:cloudflare-dns.com:/path",
+      ClientType::CustomH3(ipv4("1.1.1.1"), cloudflare(), Some("/path".into()), 1443),
+    );
+    assert_ok(
+      "[2606:4700:4700::1111]:h3:cloudflare-dns.com",
+      ClientType::CustomH3(ipv6("2606:4700:4700::1111"), cloudflare(), None, 443),
+    );
+    assert_ok(
+      "[2606:4700:4700::1111]:h3:cloudflare-dns.com:/path",
+      ClientType::CustomH3(
+        ipv6("2606:4700:4700::1111"),
+        cloudflare(),
+        Some("/path".into()),
+        443,
+      ),
+    );
+    assert_ok(
+      "[2606:4700:4700::1111]:1443:h3:cloudflare-dns.com",
+      ClientType::CustomH3(ipv6("2606:4700:4700::1111"), cloudflare(), None, 1443),
+    );
+    assert_ok(
+      "[2606:4700:4700::1111]:1443:h3:cloudflare-dns.com:/path",
+      ClientType::CustomH3(
+        ipv6("2606:4700:4700::1111"),
+        cloudflare(),
+        Some("/path".into()),
+        1443,
+      ),
+    );
 
-    assert!(ip4.is_ok());
-    assert!(ip4_port.is_ok());
-
-    assert_eq!(
-      ip4.unwrap(),
-      ClientType::CustomH3(ipv4("1.1.1.1"), cloudflare.to_string(), 443)
-    );
-    assert_eq!(
-      ip4_port.unwrap(),
-      ClientType::CustomH3(ipv4("1.1.1.1"), cloudflare.to_string(), 1443)
-    );
-    assert_eq!(
-      ip6.unwrap(),
-      ClientType::CustomH3(ipv6("2606:4700:4700::1111"), cloudflare.to_string(), 443)
-    );
-    assert_eq!(
-      ip6_port.unwrap(),
-      ClientType::CustomH3(ipv6("2606:4700:4700::1111"), cloudflare.to_string(), 1443)
-    );
-
-    assert!(ClientType::try_from("1.1.1.1:443:h3").is_err());
-    assert!(ClientType::try_from("1.1.1.1:-443:h3:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("1.1.1.1:0:h3:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("6:4700:4700::111:h3:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("example.com:443:h3:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("example.com:h3:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("256.255.254.253:h3:cloudflare-dns.com").is_err());
+    assert_err("1.1.1.1:443:h3");
+    assert_err("1.1.1.1:-443:h3:cloudflare-dns.com");
+    assert_err("1.1.1.1:0:h3:cloudflare-dns.com");
+    assert_err("6:4700:4700::111:h3:cloudflare-dns.com");
+    assert_err("example.com:443:h3:cloudflare-dns.com");
+    assert_err("example.com:h3:cloudflare-dns.com");
+    assert_err("256.255.254.253:h3:cloudflare-dns.com");
   }
 
   #[test]
   pub fn covert_custom_quic() {
-    let cloudflare = "cloudflare-dns.com";
-    let ip4 = ClientType::try_from("1.1.1.1:quic:cloudflare-dns.com");
-    let ip4_port = ClientType::try_from("1.1.1.1:1443:quic:cloudflare-dns.com");
-    let ip6 = ClientType::try_from("[2606:4700:4700::1111]:quic:cloudflare-dns.com");
-    let ip6_port = ClientType::try_from("[2606:4700:4700::1111]:1443:quic:cloudflare-dns.com");
-
-    assert!(ip4.is_ok());
-    assert!(ip4_port.is_ok());
-
-    assert_eq!(
-      ip4.unwrap(),
-      ClientType::CustomQuic(ipv4("1.1.1.1"), cloudflare.to_string(), 443)
+    assert_ok(
+      "1.1.1.1:quic:cloudflare-dns.com",
+      ClientType::CustomQuic(ipv4("1.1.1.1"), cloudflare(), 853),
     );
-    assert_eq!(
-      ip4_port.unwrap(),
-      ClientType::CustomQuic(ipv4("1.1.1.1"), cloudflare.to_string(), 1443)
+    assert_ok(
+      "1.1.1.1:1853:quic:cloudflare-dns.com",
+      ClientType::CustomQuic(ipv4("1.1.1.1"), cloudflare(), 1853),
     );
-    assert_eq!(
-      ip6.unwrap(),
-      ClientType::CustomQuic(ipv6("2606:4700:4700::1111"), cloudflare.to_string(), 443)
+    assert_ok(
+      "[2606:4700:4700::1111]:quic:cloudflare-dns.com",
+      ClientType::CustomQuic(ipv6("2606:4700:4700::1111"), cloudflare(), 853),
     );
-    assert_eq!(
-      ip6_port.unwrap(),
-      ClientType::CustomQuic(ipv6("2606:4700:4700::1111"), cloudflare.to_string(), 1443)
+    assert_ok(
+      "[2606:4700:4700::1111]:1853:quic:cloudflare-dns.com",
+      ClientType::CustomQuic(ipv6("2606:4700:4700::1111"), cloudflare(), 1853),
     );
 
-    assert!(ClientType::try_from("1.1.1.1:443:quic").is_err());
-    assert!(ClientType::try_from("1.1.1.1:-443:quic:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("1.1.1.1:0:quic:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("6:4700:4700::111:quic:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("example.com:443:quic:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("example.com:quic:cloudflare-dns.com").is_err());
-    assert!(ClientType::try_from("256.255.254.253:quic:cloudflare-dns.com").is_err());
+    assert_err("1.1.1.1:853:quic");
+    assert_err("1.1.1.1:-853:quic:cloudflare-dns.com");
+    assert_err("1.1.1.1:0:quic:cloudflare-dns.com");
+    assert_err("1.1.1.1:quic:cloudflare-dns.com:/path");
+    assert_err("1.1.1.1:1853:quic:cloudflare-dns.com:/path");
+    assert_err("6:4700:4700::111:quic:cloudflare-dns.com");
+    assert_err("example.com:853:quic:cloudflare-dns.com");
+    assert_err("example.com:quic:cloudflare-dns.com");
+    assert_err("256.255.254.253:quic:cloudflare-dns.com");
+    assert_err("[2606:4700:4700::1111]:quic:cloudflare-dns.com:/path");
+    assert_err("[2606:4700:4700::1111]:1853:quic:cloudflare-dns.com:/path");
   }
 }
