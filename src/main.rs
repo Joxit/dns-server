@@ -72,15 +72,24 @@ pub struct DNSServer {
   /// Listen path of the https/h2 server.
   #[arg(long = "h2-path", default_value("/"))]
   h2_path: String,
-  /// Activate https/h2 server beside classic DNS server over UDP.
+  /// Activate quic server beside classic DNS server over UDP.
   #[arg(
     long = "quic",
     default_value_if("quic_port", ArgPredicate::IsPresent, Some("true"))
   )]
   quic: bool,
-  /// Listen port of the https/h2 server.
+  /// Listen port of the quic server.
   #[arg(long = "quic-port", default_value("853"))]
   quic_port: u16,
+  /// Activate h3 server beside classic DNS server over UDP.
+  #[arg(
+    long = "h3",
+    default_value_if("h3_port", ArgPredicate::IsPresent, Some("true"))
+  )]
+  h3: bool,
+  /// Listen port of the h3 server.
+  #[arg(long = "h3-port", default_value("443"))]
+  h3_port: u16,
   /// Activate DNS over TLS (TCP) server beside classic DNS server over UDP.
   #[arg(
     long = "tls",
@@ -174,12 +183,32 @@ fn main() -> Result<()> {
       })?;
 
     let _guard = runtime.enter();
-
     server
       .register_quic_listener(
         quic_listener,
         Duration::from_secs(2),
         args.get_certificates()?,
+      )
+      .with_context(|| "could not register QUIC listener")?;
+  }
+
+  if args.h3 {
+    info!(
+      "Will listen H3 requests on {}:{}",
+      args.listen, args.h3_port
+    );
+    let h3_listener = runtime
+      .block_on(UdpSocket::bind((args.listen.clone(), args.h3_port)))
+      .with_context(|| format!("could not bind H3 port {}:{}", args.listen, args.h3_port))?;
+
+    let _guard = runtime.enter();
+
+    server
+      .register_h3_listener(
+        h3_listener,
+        Duration::from_secs(2),
+        args.get_certificates()?,
+        None,
       )
       .with_context(|| "could not register HTTPS listener")?;
   }
