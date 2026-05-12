@@ -18,7 +18,7 @@ Project built using rust and available on [Docker Hub](https://hub.docker.com/r/
 ## Usage
 
 ```
-Create a DNS server you can configure to block some domain and zones. You can use UDP or DNS over TLS/TCP (DoT) or DNS over HTTPS/H2 (DoH) as listeners (frontend) and resolver (backend)
+Create a DNS server you can configure to block some domain and zones.You can use UDP or DNS over TLS/TCP (DoT) or DNS over HTTPS/H2 (DoH) or DNS over Quic (DoQ) or DNS over HTTP3 (DoH3) as listeners (frontend) and resolver (backend)
 
 Usage: dns-server [OPTIONS]
 
@@ -36,11 +36,21 @@ Options:
       --zone-blacklist <ZONE_BLACKLIST>
           File containing a list of zone of domains to block, this will block the domain and all subdomains
       --dns-server <DNS_SERVER>
-          Setup your trusted dns resolver, could be cloudflare or google with UDP, TLS or H2. The port is optional when you are using custom IP. When you use TLS or H2 protocols, you must add the domain name too [default: cloudflare:h2] [possible values: cloudflare, google, cloudflare:tls, google:tls, cloudflare:h2, google:h2, ipv4:port, [ipv6]:port, ipv4:port:<tls|h2>:domain, [ipv6]:port:<tls|h2>:domain]
+          Setup your trusted dns resolver, could be cloudflare or google with UDP, TLS or H2. The port is optional when you are using custom IP. When you use TLS or H2 protocols, you must add the domain name too [default: cloudflare:h2] [possible values: cloudflare, google, cloudflare:tls, google:tls, cloudflare:h2, google:h2, cloudflare:h3, google:h3, cloudflare:quic, google:quic, ipv4:port, [ipv6]:port, ipv4:<tls|h2|h3|quic>:domain, [ipv6]:<tls|h2|h3|quic>:domain, ipv4:port:<tls|h2|h3|quic>:domain, [ipv6]:port:<tls|h2|h3|quic>:domain, ipv4:<h2|h3>:domain, [ipv6]:<h2|h3>:domain:/path, ipv4:port:<h2|h3>:domain:/path, [ipv6]:port:<h2|h3>:domain:/path]
       --h2
           Activate https/h2 server beside classic DNS server over UDP
       --h2-port <H2_PORT>
           Listen port of the https/h2 server [default: 443]
+      --h2-path <H2_PATH>
+          Listen path of the https/h2 server [default: /]
+      --quic
+          Activate quic server beside classic DNS server over UDP
+      --quic-port <QUIC_PORT>
+          Listen port of the quic server [default: 853]
+      --h3
+          Activate h3 server beside classic DNS server over UDP
+      --h3-port <H3_PORT>
+          Listen port of the h3 server [default: 443]
       --tls
           Activate DNS over TLS (TCP) server beside classic DNS server over UDP
       --tls-port <TLS_PORT>
@@ -49,6 +59,14 @@ Options:
           Path of the certificate for the https/h2 server
       --tls-private-key <TLS_PRIVATE_KEY>
           Path of the private key for the https/h2 server
+      --rfc8215-ips <RFC8215_IPS>
+          IP using Local-Use IPv4/IPv6 Translation Prefix (rfc8215)
+      --deny-networks <DENY_NETWORKS>
+          Networks denied to access the server
+      --allow-networks <ALLOW_NETWORKS>
+          Networks allowed to access the server
+      --local-dns-file <LOCAL_DNS_FILE>
+          Local DNS file in /etc/hosts style
   -h, --help
           Print help
   -V, --version
@@ -63,7 +81,20 @@ You have the choice between returning a specific IP with `--default-ip` for your
 
 ## DNS Server resolver
 
-You can add another DNS resolver (different than Cloudflare and Google) with the `--dns-server` option. The format is `ip:port:protocol:domain`. Some examples with ipv4 and ipv6 and cloudflare IPs.
+You can add another DNS resolver (different than Cloudflare and Google) with the `--dns-server` option. The format is `ip:port:protocol:domain:/path`. 
+- `ip` (Required): either IPv4 (e.g. `1.1.1.1`) or IPv6 (e.g. `[2606:4700:4700::1111]`).
+- `port`: custom port to contact the resolver, must be a number greater than 0. Default value based on the protocol.
+- `protocol`: protocol to use to contact the resolver.
+  - default: when unset will use DNS over UDP
+  - `tls`: will use DNS over TLS (DoT). Default port will be `853` on TCP.
+  - `h2`: will use DNS over HTTPS/H2 (DoH). Default port will be `443` on TCP.
+  - `quic`: will use DNS over Quic (DoQ). Default port will be `853` on UDP.
+  - `h3`: will use DNS over HTTP3 (DoH3). Default port will be `443` on UDP.
+- `domain` (Required for `tls`, `h2` and `quic` and `h3`): the domain name of your resolver. Use to check the certificate.
+- `path`: custom path to contact the resolver. Available only for `h2` and `h3`.
+
+Some examples with ipv4 and ipv6 and cloudflare IPs.
+
 
 ```
 # UDP DNS IPv4
@@ -71,24 +102,43 @@ You can add another DNS resolver (different than Cloudflare and Google) with the
 --dns-server 1.1.1.1:53 # cloudflare UDP DNS IPv4
 
 # UDP DNS IPv6
---dns-server [2606:4700:4700::1111] # cloudflare UDP DNS IPv6 with default port
+--dns-server  # cloudflare UDP DNS IPv6 with default port
 --dns-server [2606:4700:4700::1111]:53 # cloudflare UDP DNS IPv6
 
 # TLS DNS IPv4
 --dns-server 1.1.1.1:tls:cloudflare-dns.com # cloudflare TLS DNS IPv4 with default port
 --dns-server 1.1.1.1:853:tls:cloudflare-dns.com # cloudflare TLS DNS IPv4
 
-# TLS DNS IPv6
---dns-server [2606:4700:4700::1111]:tls:cloudflare-dns.com # cloudflare TLS DNS IPv6 with default port
---dns-server [2606:4700:4700::1111]:853:tls:cloudflare-dns.com # cloudflare TLS DNS IPv6
-
 # H2 DNS IPv4
 --dns-server 1.1.1.1:h2:cloudflare-dns.com # cloudflare H2 DNS IPv4 with default port
---dns-server 1.1.1.1:443:h2:cloudflare-dns.com # cloudflare H2 DNS IPv4
+--dns-server 1.1.1.1:443:h2:cloudflare-dns.com:/dns-query # cloudflare H2 DNS IPv4
 
-# H2 DNS IPv6
---dns-server [2606:4700:4700::1111]:h2:cloudflare-dns.com # cloudflare H2 DNS IPv6 with default port
---dns-server [2606:4700:4700::1111]:443:h2:cloudflare-dns.com # cloudflare H2 DNS IPv6
+# Quic DNS IPv4
+--dns-server 1.1.1.1:quic:cloudflare-dns.com # cloudflare Quic DNS IPv4 with default port
+--dns-server 1.1.1.1:853:quic:cloudflare-dns.com # cloudflare Quic DNS IPv4
+
+# H3 DNS IPv4
+--dns-server 1.1.1.1:h3:cloudflare-dns.com # cloudflare H3 DNS IPv4 with default port
+--dns-server 1.1.1.1:443:h3:cloudflare-dns.com:/dns-query # cloudflare H3 DNS IPv4
+```
+
+## DNS Resolve (bin)
+
+Try your server with the built in DNS resolver.
+
+```
+Use DNS client to try your dns server. You can use UDP or DNS over TLS/TCP (DoT) or DNS over HTTPS/H2 (DoH) or DNS over Quic (DoQ) or DNS over HTTP3 (DoH3)
+
+Usage: dns-resolve [OPTIONS] [DOMAIN]...
+
+Arguments:
+  [DOMAIN]...  
+
+Options:
+      --dns-server <DNS_SERVER>  Setup your dns server [default: cloudflare:h2] [possible values: cloudflare, google, cloudflare:tls, google:tls, cloudflare:h2, google:h2, cloudflare:h3, google:h3, cloudflare:quic, google:quic, ipv4:port, [ipv6]:port, ipv4:<tls|h2|h3|quic>:domain, [ipv6]:<tls|h2|h3|quic>:domain, ipv4:port:<tls|h2|h3|quic>:domain, [ipv6]:port:<tls|h2|h3|quic>:domain, ipv4:<h2|h3>:domain, [ipv6]:<h2|h3>:domain:/path, ipv4:port:<h2|h3>:domain:/path, [ipv6]:port:<h2|h3>:domain:/path]
+  -t, --type <RECORD_TYPE>       Type of query to issue, e.g. A, AAAA, NS, etc [default: A]
+  -h, --help                     Print help
+  -V, --version                  Print version
 ```
 
 ## Configure logging
