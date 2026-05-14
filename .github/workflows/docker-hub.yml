@@ -28,8 +28,6 @@ jobs:
       with:
         username: ${{ secrets.DOCKERHUB_USERNAME }}
         password: ${{ secrets.DOCKERHUB_TOKEN }}
-    - name: Build DNS Server
-      run: cargo build --release
     - name: Tests DNS Server
       run: cargo test
     - name: Build image latest/tag and push
